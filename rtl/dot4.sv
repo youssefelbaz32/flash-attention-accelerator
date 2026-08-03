@@ -42,13 +42,8 @@ module dot4 #(
   output logic signed [DW-1:0] s
 );
 
-
-
-
-
-
-
-
+    logic signed [DW-1:0] a_reg [D];
+    logic signed [DW-1:0] b_reg [D];
 
 
 // =============================================================================
@@ -57,17 +52,77 @@ module dot4 #(
 // -----------------------------------------------------------------------------
 // TODO(you)
 
+    typedef enum logic [1:0] {
+        IDLE,
+        LOAD,
+        MAC,
+        DONE
+    } state_t;
+
+    state_t curr_state;
+    state_t next_state;
+    logic [$clog2(D)-1:0] idx_counter;
+    logic signed [ACCW-1:0] acc;
+
+
+
 
 // =============================================================================
 // CHUNK 3: FSM  (state register + next-state logic)
 // -----------------------------------------------------------------------------
 // TODO(you)
 
+always_ff @(posedge clk) begin
+    if (~rst_n) begin
+        curr_state <= IDLE;
+    end else curr_state <= next_state;
+end
+
+always_comb begin
+    next_state = curr_state;
+    case(curr_state)
+        IDLE:
+            if (in_valid && in_ready) next_state = LOAD;
+            else next_state = IDLE;
+        LOAD: 
+            next_state = MAC;
+        MAC:
+            if (idx_counter == D-1) next_state = DONE;
+            else next_state = MAC;
+
+        DONE: 
+            if (out_valid && out_ready) next_state = IDLE;
+            else next_state = DONE;
+    endcase
+
+end
 
 // =============================================================================
 // CHUNK 4: datapath  (load latch, MAC accumulate, >>>FRAC + saturate)
 // -----------------------------------------------------------------------------
 // TODO(you)
+
+always_ff @(posedge clk) begin
+    if (~rst_n) begin
+        a_reg <= '{default: 0};
+        b_reg <= '{default: 0};
+        idx_counter <= '0;
+        acc <= '0;
+    end else begin
+        if (curr_state == LOAD) begin
+            for (int i = 0; i < D; i++) begin
+                a_reg [i] <= a_flat[i * DW +: DW]; // select from i*DW and up DW 
+                b_reg [i] <= b_flat[i * DW +: DW];
+            end
+            idx_counter <= '0;
+            acc <= '0;
+        end else if (curr_state == MAC) begin
+            acc <= acc + (a_reg[idx_counter] * b_reg[idx_counter]);
+            idx_counter <= idx_counter + 1;
+        end
+    end
+
+end
 
 
 // =============================================================================
@@ -75,6 +130,22 @@ module dot4 #(
 // -----------------------------------------------------------------------------
 // TODO(you)
 
-// endmodule
+assign in_ready = (curr_state == IDLE);
+assign out_valid = (curr_state == DONE);
+
+//divide by 2^FRAC to get to Q8.8
+logic signed [ACCW-1: 0] shifted;
+assign shifted = acc >>> FRAC; // >>> to preserve sign bit instead of >>
+
+
+localparam signed sMAX = {1'b0, {(DW-1){1'b1}}};
+localparam signed sMIN = {1'b1, {(DW-1){1'b0}}};
+
+always_comb begin
+    if (shifted > sMAX) s = sMAX;
+    else if (shifted < sMIN) s = sMIN;
+    else s = shifted[DW-1:0];
+end
+
 
 endmodule
