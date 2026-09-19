@@ -5,7 +5,7 @@
 // '{default:0} reset rewritten to a loop — tool quirk only.
 module tb_dot4;
   // must match the DUT parameters
-  localparam DW=16, FRAC=8, D=4, ACCW=40;
+  localparam DW=16, FRAC=8, D=4;   // ACCW is derived inside the DUT
 
   // DUT interface signals
   logic clk=0, rst_n;
@@ -14,7 +14,7 @@ module tb_dot4;
   logic signed [DW-1:0] s;
 
   // instantiate the DUT (.* connects same-named signals automatically)
-  dot4 #(.DW(DW), .FRAC(FRAC), .D(D), .ACCW(ACCW)) dut (.*);
+  dot4 #(.DW(DW), .FRAC(FRAC), .D(D)) dut (.*);
 
   // free-running clock: 10ns period
   always #5 clk = ~clk;
