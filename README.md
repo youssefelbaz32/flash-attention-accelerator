@@ -12,7 +12,7 @@ S = Q·Kᵀ / √d      →      P = softmax(S)      →      O = P·V
 ./run_all.sh        # reproduces every number below, no GPU or FPGA needed
 ```
 
-[![correctness](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](../../actions)
+[![correctness](https://github.com/youssefelbaz32/flash-attention-accelerator/actions/workflows/ci.yml/badge.svg)](../../actions)
 
 ---
 
