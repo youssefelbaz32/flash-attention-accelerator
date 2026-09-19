@@ -404,3 +404,98 @@ divides) should cut ~4× off the dominant stage — worth far more than more MAC
 
 **Next:** M6 — online/streaming softmax (FlashAttention-lite): kill the O(N²)
 intermediates and the per-element divide.
+
+---
+
+## 2026-09-19 — M6: online softmax RTL (FlashAttention-lite) ✅
+
+**What we built:** `python/05_online_softmax_model.py` (the spec) and
+`rtl/flash_top.sv` (the hardware), plus `rtl/exp_rom.sv` factored out so M5's
+softmax and M6's datapath share ONE definition of exp().
+
+**The trick.** Carry a running max and retroactively fix the accumulator. Per
+block of BLK keys:
+```
+m_new = max(m_run, max_j s_j)
+corr  = exp(m_run - m_new)                 <= 1.0, the rebase factor
+l_run = l_run * corr + sum_j exp(s_j - m_new)
+acc_c = acc_c * corr + sum_j exp(s_j - m_new) * V[j][c]
+```
+and only at the end, `O[i][c] = acc_c / l_run`.
+
+`corr` is the entire idea: when a later block holds a bigger score, everything
+already accumulated is wrong by **exactly** `exp(m_old - m_new)` — a *constant* —
+so one multiply rebases the whole history. That is why softmax, which looks
+irreducibly global, is streamable.
+
+### Honest accounting — I got this wrong once and the sweep caught it
+
+Seed 0 showed online softmax as **2× more accurate** than naive (0.0065 vs
+0.0133) and I nearly wrote that down. Over 200 seeds it is not true:
+
+| BLK | online mean err | naive mean err |
+|---|---|---|
+| 1 | 0.004082 | 0.004071 |
+| 2 | 0.003924 | 0.004071 |
+| 4 | 0.003686 | 0.004071 |
+
+A wash at BLK=1, ~9% better at BLK=4. **Flash is a memory/divide win, not an
+accuracy win.** And the *direction* is the real finding: smaller blocks are
+worse, because `corr` is applied once per block and its rounding **compounds
+N/BLK times down the row** — the only place in the design where an error feeds
+back into itself. Streaming harder = streaming less accurately.
+
+(Second time a single toy seed pointed the opposite way from a 200-seed sweep —
+first was the rounding-mode study in M5. Rule going forward: **no fixed-point
+decision from one seed, ever.**)
+
+### RESULT ✅ M6 DONE — bit-exact vs its own spec at every BLK
+
+| BLK | mults | cycles | vs M5 naive |
+|---|---|---|---|
+| 1 | 1 | **360** | max delta 3 LSB |
+| 2 | 2 | **280** | max delta 2 LSB |
+| 4 | 4 | **240** | max delta 2 LSB |
+
+The delta vs M5 is *supposed* to be small and nonzero — two different algorithms,
+not two implementations of one. Zero would mean the streaming path isn't
+streaming.
+
+### THE headline: the algorithm beat the hardware
+
+| | mults | cycles | intermediate storage |
+|---|---|---|---|
+| M5 naive, LANES=1 | 1 | 659 | 2N² words (S and P) |
+| M5 naive, LANES=4 | 4 | 515 | 2N² words |
+| **M6 flash, BLK=1** | **1** | **360** | **DV+2 words** |
+| M6 flash, BLK=4 | 4 | 240 | DV+2 words |
+
+**M6 with ONE multiplier (360 cy) beats M5 with FOUR (515 cy).** 4× the area
+bought 1.28×; changing the algorithm bought 1.83× at identical area.
+
+And the storage term is the one that actually decides whether this fits on a
+part. The N² intermediates vanish entirely: at N=128, D=DV=64, M5 needs
+2·128² = 32768 words ≈ **64 KB of BRAM** for S and P; M6 needs DV+2 = **66
+words ≈ 132 B**, *independent of N*. That is the difference between synthesizing
+and not.
+
+### Implementation notes
+
+- **`corr` and `e` are unsigned, `acc` is signed.** SystemVerilog makes an
+  ENTIRE expression unsigned if ANY operand is — so both are widened into
+  explicit signed values (`$signed({1'b0, x})`) before multiplying the
+  accumulator. Skipping this turns a negative `acc` into a huge positive one.
+  Worth a formal assertion later.
+- **One exp ROM, two users**, muxed by state: the rebase factor in `SCORE_WAIT`,
+  the score exponentials in `EXPF`. They never need it on the same cycle, so
+  streaming costs no extra ROM over M5.
+- **One multiplier reused DV times** for the rebase rather than DV multipliers
+  sitting idle — the rebase is DV cycles, not 1, and that's the right trade at
+  these dimensions.
+- The `div_cnt <= RNUMW-1` off-by-one from M5's softmax was already understood,
+  so the reciprocal divider worked first try. Writing the bug down paid for
+  itself within one milestone.
+
+**Next:** M8 — fused online-softmax CUDA kernel + Triton version, to run the
+same algorithm on the GPU and close the loop with M3/M4. M7 (FPGA bring-up)
+needs board access.

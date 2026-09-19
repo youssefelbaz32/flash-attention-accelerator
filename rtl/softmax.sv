@@ -58,24 +58,13 @@ module softmax #(
 
   // -- derived geometry --------------------------------------------------------
   localparam int IW     = (N > 1) ? $clog2(N) : 1;
-  localparam int LUTAW  = $clog2(EXP_N);                    // LUT address width
-  localparam int EXP_STEP = (EXP_RANGE << FRAC) / EXP_N;    // Q8.8 LSBs per entry
-  localparam int EXP_SH   = $clog2(EXP_STEP);               // index = (-x) >> this
   // sum of N entries, each <= 2^FRAC -> needs FRAC+1+clog2(N) bits; DW is wider
   // than FRAC+1 in every sane config, so DW+clog2(N) is a safe, simple bound.
   localparam int SUMW   = DW + IW;
   // numerator = (e << FRAC) + sum/2 ; +1 bit so the add can never wrap
   localparam int NUMW   = DW + FRAC + 1;
 
-  initial begin
-    if (EXP_STEP != (1 << EXP_SH))
-      $error("EXP_RANGE<<FRAC / EXP_N = %0d is not a power of 2", EXP_STEP);
-  end
-
   // -- storage -----------------------------------------------------------------
-  logic [DW-1:0] exp_lut [EXP_N];
-  initial $readmemh(EXP_FILE, exp_lut);   // Vivado infers a ROM from this
-
   logic signed [DW-1:0] s_mem [N*N];
   logic signed [DW-1:0] m_mem [N];
   logic        [DW-1:0] e_mem [N];        // exp values for the row in flight
@@ -89,22 +78,19 @@ module softmax #(
   } state_t;
   state_t curr_state, next_state;
 
-  // -- sub-block 1+2: subtract and LUT lookup (combinational) -------------------
-  logic signed [DW:0]  x_raw, x;
-  logic        [DW:0]  negx, idx_raw;
-  logic [LUTAW-1:0]    lut_idx;
-  logic [DW-1:0]       lut_val;
+  // -- sub-block 1+2: subtract and LUT lookup ---------------------------------
+  // The subtract needs DW+1 bits: the difference of two DW-bit signed numbers
+  // does not fit in DW (32767 - (-32768) = 65535). The lookup itself lives in
+  // exp_rom, shared with the M6 flash datapath.
+  logic signed [DW:0] x;
+  logic        [DW-1:0] lut_val;
 
-  assign x_raw   = $signed({s_mem[int'(i_cnt)*N + int'(j_cnt)][DW-1], s_mem[int'(i_cnt)*N + int'(j_cnt)]})
-                 - $signed({m_mem[i_cnt][DW-1], m_mem[i_cnt]});
-  // x <= 0 is guaranteed by row_max, but clamp anyway: a positive x would make
-  // -x wrap to a huge unsigned and silently return exp = 0 instead of failing.
-  assign x       = (x_raw > 0) ? '0 : x_raw;
-  assign negx    = (~x) + 1'b1;                     // -x, now non-negative
-  assign idx_raw = negx >> EXP_SH;
-  assign lut_idx = (idx_raw >= (DW+1)'(EXP_N)) ? LUTAW'(EXP_N - 1)
-                                              : idx_raw[LUTAW-1:0];
-  assign lut_val = exp_lut[lut_idx];
+  assign x = $signed({s_mem[int'(i_cnt)*N + int'(j_cnt)][DW-1],
+                      s_mem[int'(i_cnt)*N + int'(j_cnt)]})
+           - $signed({m_mem[i_cnt][DW-1], m_mem[i_cnt]});
+
+  exp_rom #(.DW(DW), .FRAC(FRAC), .EXP_N(EXP_N), .EXP_RANGE(EXP_RANGE),
+            .EXP_FILE(EXP_FILE)) u_exp (.x(x), .e(lut_val));
 
   // -- sub-block 3: restoring divider ------------------------------------------
   // Classic shift-compare-subtract: one quotient bit per cycle, MSB first.
