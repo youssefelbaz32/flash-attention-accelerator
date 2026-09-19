@@ -397,21 +397,21 @@ accept beat) and 5 cycles of output backpressure.
 sequential restoring divider is 449 cycles no matter what, and `LANES` cannot
 touch it. Adding lanes only makes the divider a *larger* share of the problem.
 
-This is the measurement that sets the M6 agenda: the bottleneck in a naive
+This is the measurement that sets the M8 agenda: the bottleneck in a naive
 attention accelerator is not the matmul everyone optimizes, it's the softmax
 normalization. One reciprocal per row (1 divide + N multiplies instead of N
 divides) should cut ~4× off the dominant stage — worth far more than more MACs.
 
-**Next:** M6 — online/streaming softmax (FlashAttention-lite): kill the O(N²)
+**Next:** M8 — online/streaming softmax (FlashAttention-lite): kill the O(N²)
 intermediates and the per-element divide.
 
 ---
 
-## 2026-09-19 — M6: online softmax RTL (FlashAttention-lite) ✅
+## 2026-09-19 — M8: FlashAttention-lite, RTL half (online softmax) ✅
 
 **What we built:** `python/05_online_softmax_model.py` (the spec) and
 `rtl/flash_top.sv` (the hardware), plus `rtl/exp_rom.sv` factored out so M5's
-softmax and M6's datapath share ONE definition of exp().
+softmax and M8's datapath share ONE definition of exp().
 
 **The trick.** Carry a running max and retroactively fix the accumulator. Per
 block of BLK keys:
@@ -449,7 +449,7 @@ back into itself. Streaming harder = streaming less accurately.
 first was the rounding-mode study in M5. Rule going forward: **no fixed-point
 decision from one seed, ever.**)
 
-### RESULT ✅ M6 DONE — bit-exact vs its own spec at every BLK
+### RESULT ✅ M8 DONE — bit-exact vs its own spec at every BLK
 
 | BLK | mults | cycles | vs M5 naive |
 |---|---|---|---|
@@ -467,15 +467,15 @@ streaming.
 |---|---|---|---|
 | M5 naive, LANES=1 | 1 | 659 | 2N² words (S and P) |
 | M5 naive, LANES=4 | 4 | 515 | 2N² words |
-| **M6 flash, BLK=1** | **1** | **360** | **DV+2 words** |
-| M6 flash, BLK=4 | 4 | 240 | DV+2 words |
+| **M8 flash, BLK=1** | **1** | **360** | **DV+2 words** |
+| M8 flash, BLK=4 | 4 | 240 | DV+2 words |
 
-**M6 with ONE multiplier (360 cy) beats M5 with FOUR (515 cy).** 4× the area
+**M8 with ONE multiplier (360 cy) beats M5 with FOUR (515 cy).** 4× the area
 bought 1.28×; changing the algorithm bought 1.83× at identical area.
 
 And the storage term is the one that actually decides whether this fits on a
 part. The N² intermediates vanish entirely: at N=128, D=DV=64, M5 needs
-2·128² = 32768 words ≈ **64 KB of BRAM** for S and P; M6 needs DV+2 = **66
+2·128² = 32768 words ≈ **64 KB of BRAM** for S and P; M8 needs DV+2 = **66
 words ≈ 132 B**, *independent of N*. That is the difference between synthesizing
 and not.
 
@@ -496,6 +496,86 @@ and not.
   so the reciprocal divider worked first try. Writing the bug down paid for
   itself within one milestone.
 
-**Next:** M8 — fused online-softmax CUDA kernel + Triton version, to run the
-same algorithm on the GPU and close the loop with M3/M4. M7 (FPGA bring-up)
-needs board access.
+**Next:** the GPU half of M8 — fused online-softmax CUDA kernel + Triton
+version, running the same recurrence on the GPU to close the loop with M3/M4.
+M6 (host comms) and M7 (FPGA bring-up) both need board access.
+
+---
+
+## 2026-09-19 — M8 GPU half: fused CUDA kernel + Triton + CPU verification ✅ (code)
+
+**What we built:**
+- `cuda/06_attention_flash.cu` — fused online-softmax kernel. One thread block
+  per query row; the running `(m, l, acc)` lives in registers; K and V stream
+  from global in tiles of `BC=128`. Causal masking *stops the key loop early*
+  rather than computing-and-masking (~2× fewer FLOPs at large N). Benchmark
+  harness sweeps N∈{128,512,2048,4096} × D∈{32,64,128} × causal, reports
+  ms/GFLOP·s⁻¹/GB·s⁻¹ and diffs against a float64 CPU reference where affordable.
+- `python/06_triton_attention.py` — the same recurrence in Triton, wrapped as a
+  drop-in for `F.scaled_dot_product_attention` (same `(Z,H,M,D)` layout, so a
+  benchmark can't accidentally time a transpose), plus a head-to-head bench.
+- `cuda/cpu_emu.h` + `cuda/test_flash_cpu.cpp` — **runs the unmodified kernel
+  body on the CPU.** One `std::thread` per CUDA thread, blocks sequential,
+  `__syncthreads()` backed by a real barrier.
+- `run_all.sh` + `.github/workflows/ci.yml` — one-command repro, gated in CI.
+
+**The emulation boundary is exactly two functions** (`blockReduceMax`,
+`blockReduceSum`), which use warp shuffles on the GPU and a shared array on the
+CPU. Everything else — the algorithm, loop bounds, tile arithmetic, shared
+layout — is the identical source nvcc compiles. A harness that rewrote the
+kernel would prove nothing about the kernel.
+
+*Proves:* loop bounds, tile arithmetic, the online recurrence, barrier placement
+(a missing `__syncthreads()` **deadlocks loudly** here instead of producing
+plausible garbage on hardware).
+*Does not prove:* warp behavior, coalescing, occupancy, real races, performance.
+
+```
+N=4     D=4    causal=0  max_err=1.484e-07  PASS
+N=4     D=4    causal=1  max_err=1.421e-07  PASS
+N=64    D=32   causal=1  max_err=4.052e-07  PASS
+N=128   D=64   causal=0  max_err=3.958e-07  PASS
+N=300   D=64   causal=0  max_err=2.766e-07  PASS   <- ragged tail (300 % 128 != 0)
+N=300   D=64   causal=1  max_err=6.577e-07  PASS   <- ragged tail + causal together
+N=512   D=128  causal=0  max_err=3.102e-07  PASS
+```
+
+`N=300` is deliberately not a multiple of the tile width. The masked tail tile
+is where boundary bugs live, and a clean power-of-two sweep never catches them.
+
+**Kernel design notes:**
+- The Q row loads to shared ONCE and is reused by every key tile — M4's "load
+  once, reuse many", now applied to the one operand genuinely reused across the
+  whole key loop.
+- Both block reductions **broadcast** the result to every thread, because every
+  thread owns accumulators needing the same `corr`. A reduce-to-thread-0 form
+  would need a third barrier to publish it.
+- `if (i >= N) return;` is at BLOCK granularity (`i = blockIdx.x`), so the whole
+  block leaves together and no barrier is ever split — the M4 rule, respected by
+  construction rather than by care.
+- Warm-up launch before timing. Timing the first launch (JIT + context + cold
+  cache) is the single most common way to publish a wrong speedup.
+- Reported bandwidth is *compulsory* traffic (Q,K,V,O once each), not an
+  inflated best case.
+
+**Claim policy for the Triton benchmark:** SDPA dispatches to real
+FlashAttention-2/cuDNN. Beating it is not the claim. The number to report is
+**% of SDPA**; this kernel uses no tensor cores (no WMMA/MMA), so parity is not
+expected.
+
+**Milestone numbering corrected.** The online-softmax work was briefly logged as
+"M6". Per the roadmap, M6 is host↔FPGA comms and M7 is FPGA bring-up;
+**FlashAttention-lite is M8**, and the RTL and CUDA/Triton versions are two
+implementations of that one milestone. Renumbered across all files.
+
+**Status:** M1–M5 and M8 complete (M8 GPU timings pending hardware). M6 and M7
+both need board access.
+
+**Next (needs hardware):**
+- GPU box: `nvcc -O3 -arch=sm_80 -o build/flash cuda/06_attention_flash.cu`,
+  then `./build/flash` (toy, expect ~1.19e-07), `./build/flash bench`, and
+  `ncu --set full` for the Nsight table. `pip install triton` for the SDPA
+  head-to-head.
+- Vivado: synthesize `attention_top` and `flash_top` at LANES/BLK ∈ {1,2,4} for
+  the LUT/FF/DSP/BRAM + fmax/WNS Pareto curve — the artifact that turns the
+  cycle counts above into an area/latency argument.

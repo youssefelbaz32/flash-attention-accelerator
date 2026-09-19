@@ -30,7 +30,7 @@ At N=4 that is 4x fewer divides. At N=128 it is 128x, and the O(N^2) buffers
 that would not have fit on the FPGA at all simply never exist.
 
 The SAME exp LUT serves both the score exponentials and the correction factor,
-so M6 adds no new ROM -- only a multiplier and two accumulators.
+so M8 adds no new ROM -- only a multiplier and two accumulators.
 
 Run:  python3 python/05_online_softmax_model.py
 """

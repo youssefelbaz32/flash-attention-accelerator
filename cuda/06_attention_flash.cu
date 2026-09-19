@@ -1,4 +1,4 @@
-// Milestone 8: FUSED single-head attention with ONLINE softmax (FlashAttention-1
+// Milestone 8 (GPU half): FUSED single-head attention with ONLINE softmax (FlashAttention-1
 // forward), float32. The same algorithm as rtl/flash_top.sv, on a GPU.
 //
 // WHY FUSED. M3 (naive) and M4 (tiled) both materialize the full N x N score
@@ -8,7 +8,7 @@
 // per query -- it does not fit anywhere near the ALUs, and attention becomes a
 // memory problem rather than an arithmetic one.
 //
-// THE FIX, identical to M6's RTL: never materialize the row. Stream keys in
+// THE FIX, identical to M8's RTL: never materialize the row. Stream keys in
 // tiles, carry a running (m, l, acc), and rebase the accumulator whenever a
 // bigger max shows up:
 //

@@ -18,7 +18,7 @@
 // THIS IS THE NAIVE (NOT FLASH) DATAFLOW: every stage runs to completion and
 // materializes its full N x N intermediate before the next one starts. S and P
 // both exist in full. That O(N^2) storage is exactly what FlashAttention
-// removes, and removing it is M6 -- so this module is the baseline that M6 has
+// removes, and removing it is M8 -- so this module is the baseline that M8 has
 // to beat on area while matching on numbers.
 //
 // Latency (N=D=DV=4, LANES=1):

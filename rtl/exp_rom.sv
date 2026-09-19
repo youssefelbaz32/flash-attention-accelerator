@@ -1,6 +1,6 @@
 // Shared combinational exp() ROM + index logic.
 //
-// Factored out because M6 needs the exponential in TWO places -- the score
+// Factored out because M8 needs the exponential in TWO places -- the score
 // exponentials and the online-softmax correction factor -- and duplicating the
 // clamp/index arithmetic is how the two quietly stop agreeing.
 //

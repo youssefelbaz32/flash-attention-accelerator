@@ -18,7 +18,7 @@ python3 python/02_fixed_point_model.py
 hr "M5 spec  bit-exact integer model + golden vectors"
 python3 python/04_rtl_fixed_model.py | grep -E "error|LUT|scaling|row sums"
 
-hr "M6 spec  online softmax model"
+hr "M8 spec  online softmax model"
 BLK=2 python3 python/05_online_softmax_model.py | grep -E "error|delta|LSB|golden"
 
 hr "M5 RTL  dot4 strict testbench (protocol + saturation + backpressure)"
@@ -37,7 +37,7 @@ for L in 1 2 4; do
   echo "  --- LANES=$L"; vvp build/top_L$L.vvp | grep -E "PASS|FAIL|latency|per-stage|COMPLETE" | sed 's/^/  /'
 done
 
-hr "M6 RTL  online-softmax pipeline, BLK sweep"
+hr "M8 RTL  online-softmax pipeline, BLK sweep"
 for B in 1 2 4; do
   BLK=$B python3 python/05_online_softmax_model.py > /dev/null
   iverilog -g2012 -DBLK_OVERRIDE=$B -o build/flash_B$B.vvp rtl/dot4.sv rtl/exp_rom.sv rtl/flash_top.sv rtl/tb_flash_top.sv 2>/dev/null

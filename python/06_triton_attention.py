@@ -1,5 +1,5 @@
 """
-Milestone 8b: the same online-softmax attention, written in Triton, plus a
+Milestone 8 (Triton): the same online-softmax attention, written in Triton, plus a
 PyTorch custom op and a head-to-head benchmark against
 torch.nn.functional.scaled_dot_product_attention (SDPA).
 

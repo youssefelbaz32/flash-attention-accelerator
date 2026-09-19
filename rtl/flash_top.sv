@@ -1,4 +1,4 @@
-// M6 · FlashAttention-lite: single-head attention with ONLINE softmax.
+// M8 · FlashAttention-lite: single-head attention with ONLINE softmax.
 //
 // Same result as attention_top (M5), fundamentally different dataflow.
 //

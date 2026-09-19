@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-// End-to-end testbench for flash_top (M6, online softmax).
+// End-to-end testbench for flash_top (M8, online softmax).
 //
 // Two independent checks, and they answer different questions:
 //   1. vs rtl/vectors/flash_O.hex -- does the RTL match its OWN spec
@@ -39,9 +39,9 @@ module tb_flash_top;
   logic [DW-1:0] q_hex [N*D];
   logic [DW-1:0] k_hex [N*D];
   logic [DW-1:0] v_hex [N*DV];
-  logic [DW-1:0] fo_hex [N*DV];   // M6 spec output
-  logic [DW-1:0] fl_hex [N];      // M6 row sums l
-  logic [DW-1:0] fm_hex [N];      // M6 row maxima m
+  logic [DW-1:0] fo_hex [N*DV];   // M8 spec output
+  logic [DW-1:0] fl_hex [N];      // M8 row sums l
+  logic [DW-1:0] fm_hex [N];      // M8 row maxima m
   logic [DW-1:0] o5_hex [N*DV];   // M5 naive output, for the algorithm delta
 
   initial begin #400000; $display("TIMEOUT - flash pipeline stalled"); $finish; end
@@ -90,7 +90,7 @@ module tb_flash_top;
         fails++;
       end
     end
-    if (fails == 0) $display("  O vs M6 spec              %2d/%2d exact  PASS", N*DV, N*DV);
+    if (fails == 0) $display("  O vs M8 spec              %2d/%2d exact  PASS", N*DV, N*DV);
 
     // algorithm delta: online vs naive. Expected small and nonzero.
     for (int t = 0; t < N*DV; t++) begin
@@ -105,7 +105,7 @@ module tb_flash_top;
     if (out_valid) begin $display("  out_valid stuck high  FAIL"); fails++; end
 
     $display("  end-to-end latency: %0d cycles", cycles);
-    if (fails == 0) $display("  M6 COMPLETE -- ONLINE SOFTMAX RTL MATCHES ITS PYTHON SPEC BIT-EXACTLY");
+    if (fails == 0) $display("  M8 COMPLETE -- ONLINE SOFTMAX RTL MATCHES ITS PYTHON SPEC BIT-EXACTLY");
     else            $display("  %0d TOTAL FAIL(S)", fails);
     $finish;
   end

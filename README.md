@@ -26,8 +26,8 @@ bought 1.83× at *identical* area — and deleted the O(N²) buffers entirely.
 |---|---|---|---|---|
 | M5 naive, `LANES=1` | 1 | 659 | 1.00× | 2N² words (S and P) |
 | M5 naive, `LANES=4` | 4 | 515 | 1.28× | 2N² words |
-| **M6 online, `BLK=1`** | **1** | **360** | **1.83×** | **DV+2 words** |
-| M6 online, `BLK=4` | 4 | 240 | 2.75× | DV+2 words |
+| **M8 online, `BLK=1`** | **1** | **360** | **1.83×** | **DV+2 words** |
+| M8 online, `BLK=4` | 4 | 240 | 2.75× | DV+2 words |
 
 Why more multipliers barely helped — per-stage profile of the naive design:
 
@@ -39,7 +39,7 @@ Why more multipliers barely helped — per-stage profile of the naive design:
 
 The sequential divider in softmax is 449 cycles no matter what. Adding lanes
 only makes it a *larger* fraction of the problem. That measurement is what set
-the M6 agenda — and it's the opposite of where most attention tutorials point.
+the M8 agenda — and it's the opposite of where most attention tutorials point.
 
 The storage column is the one that decides whether a design fits on a part. At
 `N=128, D=DV=64`: the naive path needs `2·128² = 32768` words ≈ **64 KB of
@@ -52,7 +52,7 @@ that number is **independent of N**.
 |---|---|---|---|
 | M2 Python Q8.8 | `np.exp` + float divide | 0.0063 | 0.0021 |
 | M5 RTL naive | 256-entry exp LUT + restoring divider | 0.0133 | 0.0050 |
-| M6 RTL online | same LUT, one reciprocal per row | 0.0065\* | 0.0032\* |
+| M8 RTL online | same LUT, one reciprocal per row | 0.0065\* | 0.0032\* |
 | M3/M4/M8 CUDA | float32 `expf` | 1.19e-07 | — |
 
 \* seed 0. Over **200 seeds** the online/naive gap is much smaller — mean 0.00369
@@ -64,6 +64,10 @@ came out *backwards* when judged on a single seed.
 
 ## Build order — every level diffed against the one above
 
+M8 (FlashAttention-lite) is one milestone with two implementations: the RTL
+datapath and the GPU kernels. M6 and M7 are the FPGA bring-up path and both
+need board access.
+
 | # | Level | Status | Checked against | How |
 |---|---|---|---|---|
 | M1 | Python float64 golden | ✅ | self-check | softmax rows = 1 |
@@ -71,9 +75,10 @@ came out *backwards* when judged on a single seed.
 | M3 | CUDA naive | ✅ | M1 | max abs err 1.19e-07 |
 | M4 | CUDA tiled (shared mem) | ✅ | M1 + M3 | bit-identical to M3 |
 | M5 | SystemVerilog, naive datapath | ✅ | bit-exact integer model | **exact, all 4 stages** |
-| M6 | SystemVerilog, online softmax | ✅ | its own integer spec | **exact, every BLK** |
-| M7 | FPGA bring-up | ⬜ | needs board access | — |
-| M8 | CUDA fused + Triton | ✅ code, ⬜ measured | float64 CPU reference | needs GPU for timings |
+| M6 | Host↔FPGA comms (UART + packet FSM + AXIS) | ⬜ | needs board access | — |
+| M7 | FPGA bring-up on Vivado (synth, timing, ILA) | ⬜ | needs board access | — |
+| M8 | FlashAttention-lite — RTL `flash_top.sv` | ✅ | its own integer spec | **exact, every BLK** |
+| M8 | FlashAttention-lite — CUDA + Triton | ✅ code, ⬜ measured | float64 CPU reference | needs GPU for timings |
 
 ## The part that makes "bit-exact" possible
 
@@ -137,7 +142,7 @@ python/
   02_fixed_point_model.py     M2 — Q8.8 twin + drift metrics
   03_export_data.py           .npy bridge to CUDA (float32, single source of truth)
   04_rtl_fixed_model.py       M5 spec — bit-exact integer model, emits golden vectors
-  05_online_softmax_model.py  M6 spec — the streaming recurrence
+  05_online_softmax_model.py  M8 spec — the streaming recurrence
   06_triton_attention.py      M8 — Triton kernel + PyTorch op + SDPA benchmark
 cuda/
   04_attention_naive.cu       M3 — one thread per output row
@@ -148,11 +153,11 @@ rtl/
   dot4.sv          time-multiplexed MAC; SCALE_EN folds 1/√d, ROUND_EN picks rounding
   qkt.sv           S = Q·Kᵀ/√d, LANES parallel MACs
   row_max.sv       the numerical-stability trick, in one comparator
-  exp_rom.sv       exp LUT, shared by M5 and M6
+  exp_rom.sv       exp LUT, shared by M5 and M8
   softmax.sv       LUT + restoring divider
   pv.sv            O = P·V, reuses dot4, free V transpose
   attention_top.sv M5 — naive chain, no top-level FSM
-  flash_top.sv     M6 — online softmax, O(1)-in-N state
+  flash_top.sv     M8 — online softmax, O(1)-in-N state
   vectors/         golden .hex emitted by the Python spec
 docs/project_log.md   full build log: every bug, every measurement, every reversal
 ```

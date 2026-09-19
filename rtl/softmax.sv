@@ -30,7 +30,7 @@
 //     reciprocal per ROW and multiply, turning N divides into 1 divide + N
 //     multiplies -- roughly 4x faster here. Rejected for M5 because it adds a
 //     second rounding step that would no longer match the Python spec
-//     bit-exactly, and M5's contract is exactness. Revisit at M6, where the
+//     bit-exactly, and M5's contract is exactness. Revisit at M8, where the
 //     online-softmax rescaling changes the arithmetic anyway.
 //
 // Interface: valid/ready. One input beat takes S and m; one output beat gives P.
@@ -81,7 +81,7 @@ module softmax #(
   // -- sub-block 1+2: subtract and LUT lookup ---------------------------------
   // The subtract needs DW+1 bits: the difference of two DW-bit signed numbers
   // does not fit in DW (32767 - (-32768) = 65535). The lookup itself lives in
-  // exp_rom, shared with the M6 flash datapath.
+  // exp_rom, shared with the M8 flash datapath.
   logic signed [DW:0] x;
   logic        [DW-1:0] lut_val;
 
