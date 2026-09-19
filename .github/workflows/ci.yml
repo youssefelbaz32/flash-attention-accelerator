@@ -1,0 +1,46 @@
+# Correctness CI. Runs every check that does not need a GPU or an FPGA:
+#   - the Python float and fixed-point models
+#   - all SystemVerilog testbenches under Icarus, across the parameter sweeps
+#   - the CUDA fused kernel, under the CPU emulation harness
+#   - verilator lint on every module
+#
+# The point: "it works on my machine" is not a portfolio claim. A green check
+# here means a stranger can reproduce every number in the README.
+name: correctness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog verilator
+          python -m pip install --upgrade pip
+          pip install numpy
+
+      - name: run everything
+        run: ./run_all.sh
+
+      - name: assert no failures
+        run: |
+          # run_all.sh is verbose; this is the gate. Any FAIL string anywhere,
+          # or a missing COMPLETE marker, fails the build.
+          out=$(./run_all.sh 2>&1)
+          echo "$out" | grep -qi "FAIL" && { echo "::error::a testbench reported FAIL"; exit 1; }
+          n=$(echo "$out" | grep -c "BIT-EXACTLY")
+          [ "$n" -ge 6 ] || { echo "::error::expected >=6 bit-exact pipelines, got $n"; exit 1; }
+          echo "$out" | grep -q "ALL PASS -- kernel is correct" || { echo "::error::CUDA CPU emulation did not pass"; exit 1; }
+          echo "all gates green"
