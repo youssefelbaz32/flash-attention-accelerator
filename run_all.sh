@@ -45,6 +45,21 @@ for B in 1 2 4; do
 done
 BLK=2 python3 python/05_online_softmax_model.py > /dev/null   # restore default vectors
 
+hr "beyond the toy dimensions: N = D = DV = 16"
+N=16 D=16 DV=16 python3 python/04_rtl_fixed_model.py > /dev/null
+iverilog -g2012 -DN_OVERRIDE=16 -DD_OVERRIDE=16 -DDV_OVERRIDE=16 -DLANES_OVERRIDE=4 \
+  -o build/top16.vvp $RTL rtl/attention_top.sv rtl/tb_attention_top.sv 2>/dev/null
+vvp build/top16.vvp | grep -E "PASS|FAIL|latency|per-stage|COMPLETE" | sed 's/^/  /'
+N=16 D=16 DV=16 BLK=4 python3 python/05_online_softmax_model.py > /dev/null
+iverilog -g2012 -DN_OVERRIDE=16 -DD_OVERRIDE=16 -DDV_OVERRIDE=16 -DBLK_OVERRIDE=4 \
+  -o build/flash16.vvp rtl/dot4.sv rtl/exp_rom.sv rtl/flash_top.sv rtl/tb_flash_top.sv 2>/dev/null
+vvp build/flash16.vvp | grep -E "PASS|FAIL|latency|delta|COMPLETE" | sed 's/^/  /'
+python3 python/04_rtl_fixed_model.py > /dev/null          # restore N=4 vectors
+BLK=2 python3 python/05_online_softmax_model.py > /dev/null
+
+hr "M6 planning  host link budget"
+python3 python/07_link_budget.py | tail -9
+
 hr "M8 CUDA  fused kernel verified on CPU (no GPU required)"
 c++ -std=c++17 -O2 -DCPU_EMU -I cuda -o build/flash_cpu cuda/test_flash_cpu.cpp
 ./build/flash_cpu
