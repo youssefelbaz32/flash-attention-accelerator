@@ -57,7 +57,17 @@ vvp build/flash16.vvp | grep -E "PASS|FAIL|latency|delta|COMPLETE" | sed 's/^/  
 python3 python/04_rtl_fixed_model.py > /dev/null          # restore N=4 vectors
 BLK=2 python3 python/05_online_softmax_model.py > /dev/null
 
-hr "M6 planning  host link budget"
+hr "M6 RTL  AXI4-Lite control, profiling counters, interrupt"
+iverilog -g2012 -o build/axil.vvp rtl/axil_regs.sv rtl/tb_axil_regs.sv 2>/dev/null
+vvp build/axil.vvp | tail -26 | sed 's/^/  /'
+
+hr "M6 host  profiling maths, checked offline against the same counter values"
+python3 python/09_pynq_driver.py --offline | sed 's/^/  /'
+
+hr "M6 planning  host link budget (ZUBoard 1CG)"
+python3 python/08_zuboard_budget.py | sed 's/^/  /'
+
+hr "M6 planning  generic link budget"
 python3 python/07_link_budget.py | tail -9
 
 hr "M8 CUDA  fused kernel verified on CPU (no GPU required)"
