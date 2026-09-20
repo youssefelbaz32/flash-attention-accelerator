@@ -1,153 +1,176 @@
-# M6: how the host actually talks to the FPGA
+# M6: host link on the ZUBoard 1CG
 
-Design notes written before any RTL, because two measurements changed what the
-answer should be.
+Target is the Avnet ZUBoard 1CG, AMD XCZU1CG MPSoC. That is a Zynq UltraScale+
+part, not a plain fabric board, which changes the answer completely. An earlier
+version of this document planned a UART plus packet FSM plus CRC stack. On this
+board that is the wrong design and most of it is unnecessary.
 
-## Finding 1: the wire dominates, by two to three orders of magnitude
+## The device
 
-`python/07_link_budget.py` computes the payload and compares it against the
-measured accelerator cycle counts. Link time divided by compute time:
+| | |
+|---|---|
+| PL | ~81K logic cells, **216 DSP48E2**, **3.8 Mb block RAM** (~486 KB) |
+| PS | dual Cortex-A53, dual Cortex-R5F, 1 GB LPDDR4 |
+| Boot | microSD or QSPI. Avnet publishes an official **PYNQ v3.0.1** image |
+| I/O | gigabit Ethernet, USB 2.0 host, microUSB JTAG/UART |
 
-| shape | UART 115.2k | UART 1M | UART 3M | USB-FS bulk | AXI-DMA 32b |
-|---|---|---|---|---|---|
-| N=4 D=4 | 4630x | 533x | 178x | 53x | <1x |
-| N=16 D=16 | 2453x | 283x | 94x | 28x | <1x |
-| N=64 D=64 | 839x | 97x | 32x | 10x | <1x |
-| N=128 D=64 | 423x | 49x | 16x | 5x | <1x |
-| N=512 D=64 | 106x | 12x | 4x | 1x | <1x |
+The PS is the important part. The host is not a laptop on the end of a cable, it
+is two ARM cores on the same die with a coherent path into the same DDR the PL
+can read.
 
-At N=128 with a head dim of 64 the accelerator computes in 13.5 ms and a
-115200-baud UART spends 5.7 seconds moving the data. Every "throughput" number
-measured end to end over that link is a measurement of an FTDI chip.
+## Finding 1: with DMA the link stops mattering
 
-This is not a reason to abandon UART. It is a reason to be clear about what UART
-is for: **UART is a correctness transport, not a performance transport.**
+`python/08_zuboard_budget.py`, link time against measured compute time:
 
-## Finding 2: the current top-level interface does not scale
+| shape | UART 115.2k | UART 3M | AXI-DMA 64b @150MHz |
+|---|---|---|---|
+| N=64 D=64 | 2844 ms (1259x) | 109 ms (48x) | 0.04 ms (**<1x**) |
+| N=128 D=64 | 5689 ms (635x) | 219 ms (24x) | 0.07 ms (**<1x**) |
+| N=512 D=64 | 22756 ms (160x) | 874 ms (6x) | 0.28 ms (**<1x**) |
 
-Both `attention_top` and `flash_top` take all of Q, K and V in a single beat on
-flat buses. That is fine at the toy size and impossible at any real one:
+Over a 64-bit HP port at 150 MHz, moving an N=128 problem takes about 0.07 ms
+against 8.96 ms of compute. **The accelerator becomes the bottleneck, which is
+the whole point.** All the UART machinery, the framing, the CRC, the byte
+assembler, the RTS/CTS question, exists only to survive a link that is 600x too
+slow. On this board none of it is needed.
+
+The on-chip cycle counter is still worth having, because a cycle count is the
+number you actually quote and it is immune to what Linux is doing on the A53.
+But it is now a convenience rather than the only way to get a real measurement.
+
+## Finding 2: block RAM is what limits sequence length, and it is where the streaming design pays
+
+| head dim | naive path | streaming path | |
+|---|---|---|---|
+| D=DV=64 | tops out at **N=294** | reaches **N=972** | 3.3x further |
+| D=DV=128 | tops out at **N=247** | reaches **N=486** | 2.0x further |
+
+The naive path stores S and P, which is 2N² words, so block RAM is consumed
+quadratically. The streaming path stores DV+2 words of running state, so its
+BRAM use is linear in N and comes entirely from holding Q, K and V.
+
+That is the concrete version of the argument in the M8 writeup, stated in the
+units this board actually has. And the streaming path can go further still by
+keeping Q/K/V in DDR and streaming them in, which the naive path cannot do
+because it needs random access to all of S while computing row maxima.
+
+## Finding 3: DSPs are not the constraint
+
+A 16x16 signed multiply maps to one DSP48E2. `flash_top` needs about BLK+3.
+
+| BLK | DSPs | % of device |
+|---|---|---|
+| 8 | ~11 | 5.1% |
+| 16 | ~19 | 8.8% |
+| 32 | ~35 | 16.2% |
+| 64 | ~67 | 31.0% |
+
+216 DSPs is a lot for this design. The lane count will be limited by fmax and by
+BRAM port count long before it is limited by multipliers, which means the Pareto
+sweep should go much wider than the 1/2/4 currently simulated.
+
+## The architecture
+
+```
+A53 running PYNQ (Python)
+  |
+  |  numpy arrays in pynq.allocate() buffers, physically contiguous
+  v
+AXI DMA   MM2S  ---->  AXI4-Stream, tdata[63:0], tvalid/tready, tlast
+                            |
+                            v
+                       qkv_loader        unpacks 64-bit beats into Q8.8 words,
+                            |            writes q_mem / k_mem / v_mem
+                            v
+                       flash_top         unchanged arithmetic, new input port
+                            |
+                            v
+                       o_packer          o_mem back into 64-bit beats
+                            |
+AXI DMA   S2MM  <----  AXI4-Stream
+  |
+  v
+numpy array on the A53, diffed in-process
+```
+
+Plus a small AXI4-Lite slave for control and status: start, done, the cycle
+counter, and a read-only register reporting the synthesized N/D/DV/BLK so a host
+built for one shape cannot silently talk to a bitstream built for another.
+
+### What this means for the host program
+
+The host is Python on the A53, so it can `import` the bit-exact model directly:
+
+```python
+from pynq import Overlay, allocate
+import numpy as np
+
+ol  = Overlay("attention.bit")
+dma = ol.axi_dma_0
+
+qkv = allocate(shape=(3*N*D,), dtype=np.int16)
+out = allocate(shape=(N*DV,),  dtype=np.int16)
+qkv[:] = np.concatenate([Qq.ravel(), Kq.ravel(), Vq.ravel()])
+
+dma.sendchannel.transfer(qkv); dma.recvchannel.transfer(out)
+dma.sendchannel.wait();        dma.recvchannel.wait()
+
+assert np.array_equal(out, O_spec.ravel())      # bit-exact, on the board
+cycles = ol.attention_0.read(CYCLES_REG)
+```
+
+**The golden model becomes the on-board self-test.** `python/04_rtl_fixed_model.py`
+already runs anywhere numpy runs, including on the A53, so the same integer spec
+that the simulation is checked against also checks the silicon, in the same
+process, with no serialization format in between. There is no protocol to get
+wrong because there is no protocol.
+
+That deletes the packet FSM, the CRC, the byte-to-word assembler, the UART
+transmitter and receiver, and the backpressure question that came with them.
+
+## The one piece of RTL work that is genuinely required
+
+`flash_top` takes all of Q, K and V in a single beat on flat buses. That does not
+scale:
 
 | shape | width of `Q_flat` |
 |---|---|
 | N=4, D=4 | 256 bits |
-| N=16, D=16 | 4,096 bits |
 | N=64, D=64 | 65,536 bits |
 | N=128, D=64 | 131,072 bits |
 
-There is no 131,072-bit port. The flat interface was the right call for getting
-to bit-exact quickly, and it has to go before the design meets a board. This is
-M6 work regardless of which link wins, so it comes first.
+There is no 131,072-bit port. The flat interface was right for reaching
+bit-exactness quickly and has to become a streaming write port before this meets
+a board. On this design that port is AXI4-Stream, which is where it wanted to go
+anyway.
 
-## The design that follows from both findings
-
-**Measure on-chip, transport off-chip.** Put a free-running cycle counter in the
-fabric, start it when the accelerator accepts its input beat, stop it on the
-output beat, and return the count in the response packet. The host then gets a
-real accelerator latency in clock cycles over a link that is 400x too slow to
-measure it any other way. Cost is roughly one 32-bit counter and a comparator.
-
-That single decision decouples the two problems. UART becomes a perfectly good
-way to prove the hardware computes the right answer on real silicon, which is
-what M7 actually needs, while the performance claim rests on a cycle count plus
-a timing-closure fmax rather than on a stopwatch around a serial port.
-
-## Proposed stack
-
-```
-Python host (pyserial)
-  |
-  |  framed packets over /dev/tty.usbserial
-  v
-uart_rx / uart_tx        oversampling receiver, 16x, one byte at a time
-  |
-  v
-packet_fsm               SOF / TYPE / LEN / PAYLOAD / CRC16, both directions
-  |
-  v  AXI4-Stream, tdata[7:0], tvalid/tready, tlast = end of packet
-byte_to_word             2 bytes -> one Q8.8 word, little endian first
-  |
-  v  AXI4-Stream, tdata[15:0]
-qkv_loader               writes q_mem / k_mem / v_mem, counts words, raises start
-  |
-  v
-flash_top                unchanged, except its input side becomes a write port
-  |
-  v
-o_reader + word_to_byte  drains o_mem back into a response packet
-```
-
-### Packet format
-
-```
-host -> fpga            fpga -> host
-  SOF    1B  0xA5         SOF    1B  0x5A
-  TYPE   1B               TYPE   1B  request type | 0x80
-  LEN    2B  LE           LEN    2B  LE
-  PAYLOAD LEN B           PAYLOAD LEN B
-  CRC16  2B  CCITT        CRC16  2B  CCITT
-```
-
-CRC16-CCITT over TYPE through PAYLOAD. It is eight lines of RTL and it turns a
-flaky cable from "wrong answers" into "a retry", which matters a lot when the
-thing you are trying to prove is that the arithmetic is correct.
-
-| TYPE | meaning | payload |
-|---|---|---|
-| 0x01 | LOAD_Q | N*D Q8.8 words |
-| 0x02 | LOAD_K | N*D words |
-| 0x03 | LOAD_V | N*DV words |
-| 0x04 | START | none |
-| 0x05 | READ_O | none, response carries N*DV words + cycle count |
-| 0x06 | PING | none, response echoes build ID and the synthesized N/D/DV/BLK |
-
-`PING` returning the synthesized parameters is worth having on day one. The most
-confusing possible bug is a host built for one set of dimensions talking to a
-bitstream built for another, and it presents as garbage arithmetic rather than as
-a protocol error.
-
-### Backpressure, and the one place it bites
-
-Internally every module already speaks valid/ready, so backpressure propagates
-for free. The exception is the UART receiver: bytes arrive on the wire whether or
-not anything downstream is ready, and a plain 8N1 link has no way to say stop.
-Two options, and the choice is not obvious:
-
-- **RTS/CTS hardware flow control.** Correct, and costs two pins plus the host
-  agreeing to use them. pyserial supports it with `rtscts=True`.
-- **Size the sink so it cannot stall.** The loader writes straight into
-  `q_mem`/`k_mem`/`v_mem`, which are always ready during a load, so there is
-  nowhere to stall as long as the host does not send a second packet before the
-  first is consumed.
-
-The second is simpler and sufficient here, but it is a protocol invariant rather
-than a hardware guarantee, so it belongs in an assertion: if a byte arrives while
-the loader is not ready, raise an error flag and report it in the next response
-rather than silently dropping it. Silent drop on a serial link is exactly the
-failure mode that costs a day.
-
-## The board question, which is still open
-
-The stack above assumes a plain fabric part with a USB-UART bridge, which covers
-Basys3, Arty A7, Nexys A7 and similar. If the board is a Zynq (Pynq-Z2, Zybo,
-Kria) the better answer is different: the accelerator becomes an AXI4-Stream
-peripheral hanging off an AXI-DMA, the ARM core runs a small Python or C program
-in Linux, and the transfer stops being the bottleneck entirely. That is more work
-to set up and much more representative of how an accelerator is actually driven.
-
-Deciding this changes maybe 60% of the M6 RTL, so it is worth settling before
-writing any of it.
+This is the only change to already-verified RTL, so it happens first and gets
+re-diffed against the golden vectors immediately, at both N=4 and N=16, before
+anything else moves.
 
 ## Order of work
 
-1. Replace the flat input beat with a streaming write port on `flash_top`.
-   Needed on every path, and it is the only change to already-verified RTL, so it
-   happens first and gets re-diffed against the golden vectors immediately.
-2. Cycle counter and the `PING`/parameter-report path. Smallest useful bitstream,
-   proves the toolchain and the link before any arithmetic is involved.
-3. `uart_rx`/`uart_tx` plus a loopback test at the pins.
-4. `packet_fsm` with CRC, tested in simulation against a Python model of the same
-   framing so both sides are checked against one definition.
-5. Full path, host sends Q/K/V and diffs the returned O against
-   `python/04_rtl_fixed_model.py`. Same golden vectors as the simulation, so a
-   hardware mismatch is immediately distinguishable from a model mismatch.
+1. **Streaming input port on `flash_top`.** Replace the flat beat with an AXIS
+   write port feeding `q_mem`/`k_mem`/`v_mem`. Re-run `tb_flash_top` at N=4 and
+   N=16 and confirm still bit-exact. No board involved.
+2. **AXIS output port**, same treatment.
+3. **AXI4-Lite control slave**: start, done, cycle count, and the
+   parameter-report register.
+4. **Package as an IP**, build the block design: DMA, interconnect, the
+   accelerator, PS AXI HP port.
+5. **PYNQ image** from Avnet's `ZUBoard_1CG-PYNQ` repo, then the notebook that
+   loads the overlay, runs one N=4 case, and diffs against
+   `python/04_rtl_fixed_model.py`. Smallest possible thing that proves the whole
+   chain.
+6. **Scale up** N and sweep BLK, recording cycle counts from the counter and
+   LUT/FF/DSP/BRAM plus WNS from Vivado at each point. That is the Pareto curve.
+
+## What to measure once it runs
+
+- Cycles from the on-chip counter, against the simulated count. They should
+  match closely; a gap means DMA stall, not arithmetic.
+- fmax from the Vivado timing report, and therefore latency in microseconds.
+- LUT / FF / DSP / BRAM at BLK of 4, 8, 16, 32, 64.
+- The BRAM crossover: the N where the naive build stops fitting and the
+  streaming build still does. Predicted at N≈294 for D=DV=64. Demonstrating that
+  on hardware is a much stronger claim than computing it.
