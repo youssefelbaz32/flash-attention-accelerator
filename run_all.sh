@@ -61,6 +61,11 @@ hr "M6 RTL  AXI4-Lite control, profiling counters, interrupt"
 iverilog -g2012 -o build/axil.vvp rtl/axil_regs.sv rtl/tb_axil_regs.sv 2>/dev/null
 vvp build/axil.vvp | tail -26 | sed 's/^/  /'
 
+hr "M6 RTL  packaged IP: AXI-Lite + AXI-Stream integration"
+iverilog -g2012 -o build/axi_int.vvp rtl/dot4.sv rtl/exp_rom.sv rtl/flash_top.sv \
+  rtl/axil_regs.sv rtl/attention_axi.sv rtl/tb_attention_axi.sv 2>/dev/null
+vvp build/axi_int.vvp | tail -14 | sed 's/^/  /'
+
 hr "M6 host  profiling maths, checked offline against the same counter values"
 python3 python/09_pynq_driver.py --offline | sed 's/^/  /'
 
@@ -75,8 +80,9 @@ c++ -std=c++17 -O2 -DCPU_EMU -I cuda -o build/flash_cpu cuda/test_flash_cpu.cpp
 ./build/flash_cpu
 
 hr "lint  verilator, all RTL"
-for m in dot4 qkt row_max exp_rom softmax pv attention_top flash_top; do
-  verilator --lint-only -Wno-fatal --top-module $m $RTL rtl/attention_top.sv rtl/flash_top.sv 2>&1 \
+for m in dot4 qkt row_max exp_rom softmax pv attention_top flash_top axil_regs attention_axi; do
+  verilator --lint-only -Wno-fatal --top-module $m $RTL rtl/attention_top.sv rtl/flash_top.sv \
+    rtl/axil_regs.sv rtl/attention_axi.sv 2>&1 \
     | grep -E "%(Error|Warning)" | grep -v EOFNEWLINE || true
 done
 echo "  clean"

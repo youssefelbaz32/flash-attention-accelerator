@@ -43,5 +43,6 @@ jobs:
           n=$(echo "$out" | grep -c "BIT-EXACTLY")
           [ "$n" -ge 8 ] || { echo "::error::expected >=8 bit-exact pipelines, got $n"; exit 1; }
           echo "$out" | grep -q "ALL PASS -- kernel is correct" || { echo "::error::CUDA CPU emulation did not pass"; exit 1; }
+          echo "$out" | grep -q "IP INTEGRATION PASS" || { echo "::error::IP integration test did not pass"; exit 1; }
           echo "$out" | grep -q "offline reporting checks PASS" || { echo "::error::host profiling maths did not check out"; exit 1; }
           echo "all gates green"
