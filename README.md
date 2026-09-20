@@ -128,6 +128,47 @@ hostile as the protocol permits and it failed on the first run.
 clean, and only `fread`'s return count knew anything was wrong. That is why
 checking `fread`'s return value is load-bearing rather than defensive.
 
+**An assertion that was itself wrong.** `dot4` carried
+`initial if (D != (1 <<< M)) $error("D is not a power of 2")`. That check only
+matters for the `1/√d` path, because the scale has to become an integer shift.
+When `pv` reuses the same module as a plain dot product over the key axis with
+`SCALE_EN=0`, any `D` is legal. The assertion fired on correct code. Guarding it
+with `SCALE_EN &&` fixed it. Worth remembering that a false alarm in a check is
+still a bug, and it is the worse kind, because the reflex is to trust the check
+and change the design.
+
+**A ternary between two enum literals will not compile.** This is fine in some
+tools and an elaboration error in others:
+
+```systemverilog
+next_state = last_pair ? DONE : ISSUE;   // rejected, needs an explicit cast
+```
+
+The result of `?:` is a plain vector, and assigning it to an enum-typed variable
+is a type violation. I rewrote it as if/else, which reads better anyway.
+
+**The simulator crashed rather than complained.** Passing an unsized array
+argument to a SystemVerilog task, then calling it with buses of different widths,
+segfaults Icarus 13:
+
+```
+tb_attention_top.sv:97: assert: elab_expr.cc:4593:
+  failed assertion ntype->type_compatible(net->net_type())
+Abort trap: 6
+```
+
+I was checking a 4-element bus and a 16-element bus with one helper. Splitting it
+into a scalar compare fixed it. When a tool aborts with a file-and-line from its
+own source, the bug is in your code's shape, not its logic, and no amount of
+staring at the RTL will find it.
+
+**Array versus pointer in the CUDA emulation.** The kernel declares
+`extern __shared__ float smem[]`. With `__shared__` defined away on the CPU that
+becomes `extern float smem[]`, which does not match a `float*` definition, so the
+harness would not link. It has to be backed by a real array. Small, but it is the
+kind of thing that makes people give up on emulating a kernel and go back to
+waiting for the GPU.
+
 **Two numerics decisions came out backwards on seed 0.** I nearly shipped both.
 Truncating division looked better than round-to-nearest, and online softmax
 looked twice as accurate as naive. A 200-seed sweep reversed both. Round-to-
