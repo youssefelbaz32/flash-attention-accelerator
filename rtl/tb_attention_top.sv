@@ -13,7 +13,15 @@
 //            rtl/softmax.sv rtl/pv.sv rtl/attention_top.sv rtl/tb_attention_top.sv
 //   vvp build/top.vvp
 module tb_attention_top;
-  localparam int DW = 16, FRAC = 8, N = 4, D = 4, DV = 4;
+  // Dimensions come from the command line so one testbench covers the whole
+  // parameter sweep. They must match whatever python/04_rtl_fixed_model.py was
+  // run with, because that is what produced rtl/vectors/*.hex.
+  localparam int DW = 16, FRAC = 8;
+`ifdef N_OVERRIDE
+  localparam int N = `N_OVERRIDE, D = `D_OVERRIDE, DV = `DV_OVERRIDE;
+`else
+  localparam int N = 4, D = 4, DV = 4;
+`endif
 `ifdef LANES_OVERRIDE
   localparam int LANES = `LANES_OVERRIDE;
 `else

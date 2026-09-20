@@ -16,7 +16,16 @@
 //            rtl/flash_top.sv rtl/tb_flash_top.sv
 //   vvp build/flash.vvp
 module tb_flash_top;
-  localparam int DW = 16, FRAC = 8, N = 4, D = 4, DV = 4, RECIP_SH = 24;
+  // Dimensions come from the command line so one testbench covers the whole
+  // parameter sweep. They must match whatever python/04_rtl_fixed_model.py was
+  // run with, because that is what produced rtl/vectors/*.hex.
+  localparam int DW = 16, FRAC = 8;
+`ifdef N_OVERRIDE
+  localparam int N = `N_OVERRIDE, D = `D_OVERRIDE, DV = `DV_OVERRIDE;
+`else
+  localparam int N = 4, D = 4, DV = 4;
+`endif
+  localparam int RECIP_SH = 24;
 `ifdef BLK_OVERRIDE
   localparam int BLK = `BLK_OVERRIDE;
 `else

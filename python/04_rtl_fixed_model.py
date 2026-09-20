@@ -32,11 +32,14 @@ import numpy as np
 # =============================================================================
 # CHUNK 1: format + dimensions  (these must match the RTL parameters exactly)
 # -----------------------------------------------------------------------------
-DW    = 16          # word width               -> rtl parameter DW
-FRAC  = 8           # fraction bits, Q8.8      -> rtl parameter FRAC
-N     = 4           # sequence length          -> rtl parameter N
-D     = 4           # head dim                 -> rtl parameter D
-DV    = 4           # value dim                -> rtl parameter DV
+# All overridable from the environment so one script can drive the whole
+# parameter sweep. The RTL takes the same values as module parameters, so a
+# sweep here and a sweep there stay in step.
+DW    = int(os.environ.get("DW",   16))   # word width          -> rtl parameter DW
+FRAC  = int(os.environ.get("FRAC",  8))   # fraction bits, Q8.8 -> rtl parameter FRAC
+N     = int(os.environ.get("N",     4))   # sequence length     -> rtl parameter N
+D     = int(os.environ.get("D",     4))   # head dim            -> rtl parameter D
+DV    = int(os.environ.get("DV",    4))   # value dim           -> rtl parameter DV
 SCALE = 1 << FRAC   # 256
 
 INT_MIN = -(1 << (DW - 1))   # -32768
