@@ -51,15 +51,30 @@ module flash_top #(
   input  logic clk,
   input  logic rst_n,
 
-  input  logic                in_valid,
-  output logic                in_ready,
-  input  logic [N*D*DW-1:0]   Q_flat,
-  input  logic [N*D*DW-1:0]   K_flat,
-  input  logic [N*DV*DW-1:0]  V_flat,
+  // ---- input stream: Q row-major, then K row-major, then V row-major ------
+  // One Q8.8 word per beat. The flat-bus interface this replaces was 131,072
+  // bits wide at N=128 D=64, which is not a port that exists.
+  input  logic                s_valid,
+  output logic                s_ready,
+  input  logic [DW-1:0]       s_data,
+  input  logic                s_last,      // checked against the expected count
 
-  output logic                out_valid,
-  input  logic                out_ready,
-  output logic [N*DV*DW-1:0]  O_flat
+  // ---- output stream: O row-major ----------------------------------------
+  output logic                m_valid,
+  input  logic                m_ready,
+  output logic [DW-1:0]       m_data,
+  output logic                m_last,
+
+  // ---- profiling taps for axil_regs --------------------------------------
+  output logic                busy,
+  output logic                done_pulse,
+  output logic                ph_load,
+  output logic                ph_compute,
+  output logic                ph_store,
+  output logic                in_stall,
+  output logic                out_stall,
+  output logic                err_overrun,   // beat arrived outside the load phase
+  output logic                err_underrun   // s_last came early or late
 );
 
   // ---- derived widths --------------------------------------------------------
@@ -72,6 +87,21 @@ module flash_top #(
   localparam int ACCW  = 2*DW + IW + 1;
   localparam int RNUMW = RECIP_SH + 1;                 // reciprocal numerator width
   localparam logic signed [DW-1:0] NEG_INF = {1'b1, {(DW-1){1'b0}}};
+
+  // load/store sequencing. Two counters rather than one flat index divided by D,
+  // because a divide by a non-power-of-two would cost real logic.
+  localparam int LCW      = (D > DV) ? ((D  > 1) ? $clog2(D)  : 1)
+                                     : ((DV > 1) ? $clog2(DV) : 1);
+  localparam int OCW      = (N*DV > 1) ? $clog2(N*DV) : 1;
+  logic [1:0]      ld_sel;          // 0 = Q, 1 = K, 2 = V
+  logic [IW-1:0]   ld_row;
+  logic [LCW-1:0]  ld_col;
+  logic [OCW-1:0]  st_cnt;
+  logic [LCW-1:0]  col_max;
+  logic            ld_last, st_last;
+  assign col_max = (ld_sel == 2'd2) ? LCW'(DV - 1) : LCW'(D - 1);
+  assign ld_last = (ld_sel == 2'd2) && (ld_row == IW'(N-1)) && (ld_col == LCW'(DV-1));
+  assign st_last = (st_cnt == OCW'(N*DV - 1));
 
   initial if (N % BLK != 0) $error("BLK=%0d must divide N=%0d", BLK, N);
 
@@ -96,8 +126,8 @@ module flash_top #(
   logic [BW-1:0] b_cnt;
 
   typedef enum logic [3:0] {
-    IDLE, SCORE_ISSUE, SCORE_WAIT, REBASE, EXPF, FOLD,
-    RECIP_LOAD, RECIP_ITER, SCALE_OUT, DONE
+    IDLE, LOAD, SCORE_ISSUE, SCORE_WAIT, REBASE, EXPF, FOLD,
+    RECIP_LOAD, RECIP_ITER, SCALE_OUT, DRAIN
   } state_t;
   state_t curr_state, next_state;
 
@@ -205,7 +235,8 @@ module flash_top #(
   always_comb begin
     next_state = curr_state;
     case (curr_state)
-      IDLE:        if (in_valid) next_state = SCORE_ISSUE;
+      IDLE:        if (s_valid) next_state = LOAD;
+      LOAD:        if (s_valid && s_ready && ld_last) next_state = SCORE_ISSUE;
       SCORE_ISSUE: if (d4_all_in_ready)  next_state = SCORE_WAIT;
       SCORE_WAIT:  if (d4_all_out_valid) next_state = REBASE;
       REBASE:      if (last_c) next_state = EXPF;      // DV cycles
@@ -217,10 +248,10 @@ module flash_top #(
       RECIP_LOAD:  next_state = RECIP_ITER;
       RECIP_ITER:  if (div_cnt == 0) next_state = SCALE_OUT;
       SCALE_OUT:   if (last_c) begin                   // DV cycles
-                     if (last_row) next_state = DONE;
+                     if (last_row) next_state = DRAIN;
                      else          next_state = SCORE_ISSUE;
                    end
-      DONE:        if (out_ready) next_state = IDLE;
+      DRAIN:       if (m_valid && m_ready && st_last) next_state = IDLE;
       default:     next_state = IDLE;
     endcase
   end
@@ -229,6 +260,7 @@ module flash_top #(
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       row_i <= '0; j_base <= '0; c_cnt <= '0; b_cnt <= '0;
+      ld_sel <= '0; ld_row <= '0; ld_col <= '0; st_cnt <= '0;
       m_run <= NEG_INF; l_run <= '0; m_new_r <= '0; corr_r <= '0;
       div_num <= '0; div_den <= '0; div_rem <= '0; div_q <= '0; div_cnt <= '0;
       for (int t = 0; t < N;    t++) begin q_mem[t]<='0; k_mem[t]<='0; v_mem[t]<='0; end
@@ -236,15 +268,33 @@ module flash_top #(
       for (int t = 0; t < BLK;  t++) begin s_blk[t]<='0; e_mem[t]<='0; end
       for (int t = 0; t < N*DV; t++) o_mem[t] <= '0;
     end else begin
-      if (in_valid && in_ready) begin            // capture on the accept beat
-        for (int t = 0; t < N; t++) begin
-          q_mem[t] <= Q_flat[t*D*DW  +: D*DW];
-          k_mem[t] <= K_flat[t*D*DW  +: D*DW];
-          v_mem[t] <= V_flat[t*DV*DW +: DV*DW];
-        end
-        row_i <= '0; j_base <= '0; m_run <= NEG_INF; l_run <= '0;
+      // Streaming load. One word per beat, routed by (ld_sel, ld_row, ld_col).
+      // The accumulators are armed on the FIRST beat rather than on a separate
+      // start pulse, so there is no window where a beat can arrive before the
+      // state it will be folded into has been cleared.
+      if (curr_state == IDLE && s_valid) begin
+        ld_sel <= '0; ld_row <= '0; ld_col <= '0;
+        row_i  <= '0; j_base <= '0; m_run <= NEG_INF; l_run <= '0;
         for (int t = 0; t < DV; t++) acc[t] <= '0;
       end
+
+      if (curr_state == LOAD && s_valid && s_ready) begin
+        case (ld_sel)
+          2'd0: q_mem[ld_row][ld_col*DW +: DW] <= s_data;
+          2'd1: k_mem[ld_row][ld_col*DW +: DW] <= s_data;
+          default: v_mem[ld_row][ld_col*DW +: DW] <= s_data;
+        endcase
+        if (ld_col == col_max) begin
+          ld_col <= '0;
+          if (ld_row == IW'(N-1)) begin
+            ld_row <= '0;
+            ld_sel <= ld_sel + 2'd1;
+          end else ld_row <= ld_row + IW'(1);
+        end else ld_col <= ld_col + LCW'(1);
+      end
+
+      if (curr_state == SCALE_OUT && last_c && last_row) st_cnt <= '0;
+      if (curr_state == DRAIN && m_valid && m_ready)     st_cnt <= st_cnt + OCW'(1);
 
       case (curr_state)
         SCORE_WAIT: if (d4_all_out_valid) begin
@@ -322,16 +372,29 @@ module flash_top #(
     end
   end
 
-  assign in_ready     = (curr_state == IDLE);
-  assign out_valid    = (curr_state == DONE);
+  assign s_ready      = (curr_state == LOAD);
+  assign m_valid      = (curr_state == DRAIN);
+  assign m_data       = o_mem[st_cnt];
+  assign m_last       = st_last;
   assign d4_in_valid  = (curr_state == SCORE_ISSUE);
   assign d4_out_ready = (curr_state == SCORE_WAIT);
 
-  genvar g;
-  generate
-    for (g = 0; g < N*DV; g++) begin : gen_pack
-      assign O_flat[g*DW +: DW] = o_mem[g];
-    end
-  endgenerate
+  // ---- profiling ------------------------------------------------------------
+  // ph_compute is everything that is neither load nor store nor idle, so the
+  // three phases plus idle account for every cycle by construction. That is why
+  // axil_regs can treat a TOTAL-versus-sum discrepancy as a real signal.
+  assign busy       = (curr_state != IDLE);
+  assign ph_load    = (curr_state == LOAD);
+  assign ph_store   = (curr_state == DRAIN);
+  assign ph_compute = busy && !ph_load && !ph_store;
+  assign in_stall   = ph_load  && !s_valid;
+  assign out_stall  = ph_store && !m_ready;
+  assign done_pulse = (curr_state == DRAIN) && m_valid && m_ready && st_last;
+
+  // A beat offered while we are not loading is dropped on the floor; say so
+  // rather than silently losing it. Same for a framing marker in the wrong place.
+  assign err_overrun  = s_valid && !s_ready && (curr_state != IDLE);
+  assign err_underrun = (curr_state == LOAD) && s_valid && s_ready &&
+                        (s_last ^ ld_last);
 
 endmodule
