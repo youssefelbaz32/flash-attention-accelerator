@@ -98,10 +98,6 @@ many. Loading `NUMW - 1` instead of `NUMW` fixed it. The useful part is the
 fingerprint: a clean power-of-two error is almost always a shift-count bug, and
 that narrowed 400 lines of RTL down to one register load.
 
-**`logic d4_all_in_ready = &d4_in_ready;` does nothing.** At module scope in
-SystemVerilog that is a variable initializer, not a continuous assignment. It
-samples once at time zero and never updates. It needs to be an `assign`.
-
 **A counter that wraps exactly when you need it not to.** I first wrote the
 end-of-row test as `j_base + LANES == N`. With N=4, `j_base` is two bits wide,
 so that sum wraps to 0 at precisely the moment it should read 4. The test never
