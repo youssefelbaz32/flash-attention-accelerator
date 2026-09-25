@@ -292,6 +292,22 @@ correctness cases pass, in fp16 and fp32.
 Unlike the CUDA kernel, the Triton kernel does use tensor cores: `tl.dot` on
 fp16 tiles lowers to MMA. That is most of the gap between the two tables.
 
+**Against cuDNN.** torch 2.14.0+cu130 with triton-windows 3.8 adds cuDNN
+attention for fp16. FlashAttention-2 is still missing from every official
+Windows build. Same method as above, and all 16 correctness cases still pass.
+
+| N | D | causal | Triton ms | cuDNN ms | % of cuDNN | % of mem-efficient |
+|---|---|---|---|---|---|---|
+| 512 | 128 | no | 0.117 | 0.089 | 76% | 98% |
+| 2048 | 64 | no | 0.516 | 0.523 | 102% | 119% |
+| 2048 | 64 | yes | 0.277 | 0.363 | 131% | 131% |
+| 2048 | 128 | no | 1.344 | 1.021 | 76% | 107% |
+| 4096 | 64 | no | 2.150 | 2.057 | 96% | 126% |
+| 4096 | 128 | no | 5.404 | 3.989 | 74% | 110% |
+| 4096 | 128 | yes | 2.851 | 2.138 | 75% | 108% |
+
+Triton is at parity with cuDNN for D=64 and about 75% of it at D=128.
+
 **CUDA**, fp32, one head, one thread block per query row, mean of 20 launches.
 SDPA is timed at the same shape and dtype. All 24 sweep cases pass. Every
 N<=512 case is checked against float64, worst error 1.4e-06.
@@ -310,10 +326,49 @@ each block owns one query row and re-streams all of K and V from L2. There is
 no query tiling and no tensor cores, so the next step is to give each block a
 tile of query rows.
 
-**Nsight Compute: not run.** `ncu` stops with `ERR_NVGPUCTRPERM`, because
-Windows limits GPU performance counters to administrators by default. It needs
-NVIDIA Control Panel > Developer > Manage GPU Performance Counters set to all
-users, or an elevated shell.
+### Roofline
+
+The ceilings are measured on this card, not taken from a spec sheet. The SM
+clock held at 2400 MHz, drawing 58 to 72 W.
+
+| ceiling | how | measured |
+|---|---|---|
+| FP32 compute | 8192^3 SGEMM, TF32 off | 11.8 TFLOP/s |
+| FP16 tensor-core compute | 8192^3 fp16 GEMM | 39.2 TFLOP/s |
+| DRAM bandwidth | 1 GB device copy | 223 GB/s |
+| L2 bandwidth | 8 MB device copy, fits the 32 MB L2 | 847 GB/s |
+
+Ridge points: 53 FLOP/byte against DRAM and 14 FLOP/byte against L2 for FP32.
+
+**CUDA kernel, N=4096 D=128: bound by L2 bandwidth.** Each of the N blocks
+streams all of K and V, so the traffic is `N * N * D * 8` bytes. That is 17.2
+GB for 8.6 GFLOP, an intensity of 0.5 FLOP/byte, far left of either ridge. K
+and V together are 4 MB and fit in L2, so that traffic is L2 traffic. DRAM only
+sees the compulsory 8 MB, about 1000 FLOP/byte, which is nowhere near a limit.
+
+| | value | share of ceiling |
+|---|---|---|
+| achieved compute | 303 GFLOP/s | 2.6% of FP32 |
+| modeled L2 traffic | 607 GB/s | 72% of L2 |
+| L2 roof at 0.5 FLOP/byte | 424 GFLOP/s | kernel reaches 72% of it |
+
+So the kernel is not slow at arithmetic. It is spending nearly all of L2's
+bandwidth re-reading the same K and V once per query row. A block that owns a
+tile of B query rows reads K and V once for all B of them, which moves the
+intensity to about 0.5 * B FLOP/byte. B=64 would put it past the L2 ridge, and
+then tensor cores become worth adding. That is FlashAttention's actual design,
+and the measured next step.
+
+**Triton kernel, N=4096 D=128 fp16:** 25.4 TFLOP/s, 65% of the measured
+tensor-core ceiling. cuDNN reaches 34.4 TFLOP/s, 88%. Triton is compute-bound
+already, and the remaining gap is instruction scheduling, not the algorithm.
+
+**Caveat: the L2 traffic is modeled, not counted.** It assumes each K and V
+line is fetched from L2 once per block. L1 hits would lower it and uncoalesced
+loads would raise it. Nsight Compute counts it directly, but `ncu` currently
+stops with `ERR_NVGPUCTRPERM`. The counter permission (NVIDIA Control Panel >
+Developer > Manage GPU Performance Counters > all users) was reset by a driver
+update to 610.78, and needs setting again.
 
 ## Layout
 
