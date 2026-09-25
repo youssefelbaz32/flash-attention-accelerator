@@ -352,23 +352,64 @@ sees the compulsory 8 MB, about 1000 FLOP/byte, which is nowhere near a limit.
 | modeled L2 traffic | 607 GB/s | 72% of L2 |
 | L2 roof at 0.5 FLOP/byte | 424 GFLOP/s | kernel reaches 72% of it |
 
-So the kernel is not slow at arithmetic. It is spending nearly all of L2's
-bandwidth re-reading the same K and V once per query row. A block that owns a
-tile of B query rows reads K and V once for all B of them, which moves the
-intensity to about 0.5 * B FLOP/byte. B=64 would put it past the L2 ridge, and
-then tensor cores become worth adding. That is FlashAttention's actual design,
-and the measured next step.
+So the kernel is not slow at arithmetic. It is re-reading the same K and V from
+L2 once per query row.
 
 **Triton kernel, N=4096 D=128 fp16:** 25.4 TFLOP/s, 65% of the measured
 tensor-core ceiling. cuDNN reaches 34.4 TFLOP/s, 88%. Triton is compute-bound
 already, and the remaining gap is instruction scheduling, not the algorithm.
 
-**Caveat: the L2 traffic is modeled, not counted.** It assumes each K and V
-line is fetched from L2 once per block. L1 hits would lower it and uncoalesced
-loads would raise it. Nsight Compute counts it directly, but `ncu` currently
-stops with `ERR_NVGPUCTRPERM`. The counter permission (NVIDIA Control Panel >
-Developer > Manage GPU Performance Counters > all users) was reset by a driver
-update to 610.78, and needs setting again.
+### What Nsight Compute said
+
+Profiled at N=4096 with `ncu --set full`. The kernel runs slower under the
+profiler (1.88 GHz, 35 ms), so compare shares, not absolute times.
+
+| metric | D=128 | D=64 | what it means |
+|---|---|---|---|
+| L2 to L1 bytes | 19.4 GB | 8.58 GB | the model said 17.2 and 8.59: re-streaming confirmed |
+| DRAM bytes | 85 MB | 29 MB | 0.6% of peak, not a DRAM problem |
+| L1/TEX throughput | 98% | 97% | **the real limit** |
+| L2 throughput | 42% | 35% | not saturated yet |
+| useful bytes per 32-byte sector | 7.1 | | uncoalesced loads |
+| warps active | 97% | 98% | occupancy is fine |
+| top stalls, cycles per instruction | long scoreboard 57, MIO throttle 57 | long scoreboard 60, barrier 56 | waiting on memory |
+
+The model got the traffic right and the binding limit wrong. Before L2 bandwidth
+could matter, L1 was saturated by uncoalesced loads. Thread `tid` computed its
+dot product by walking its own key row, `K[j*D + k]`, so the 32 lanes of a warp
+sat D floats apart. Every load touched 32 sectors and used 4 bytes of each.
+
+### Following the profile
+
+Two changes, each aimed at the limit the profile named, each verified the same
+way: the 24-case sweep against float64, and `compute-sanitizer` racecheck,
+memcheck and synccheck.
+
+1. **Coalesce K** (`06_attention_flash.cu`). Stage K through shared memory 32
+   columns at a time, transposed with a padded pitch so both the load and the
+   read are conflict-free. The accumulation order is unchanged, and every
+   checked case reports the same error as before.
+2. **Tile the queries** (`07_attention_flash_qtile.cu`). One warp owns one query
+   row, and a block of WR warps shares every K and V tile through shared
+   memory, so L2 traffic drops by WR. Every reduction is a warp shuffle, so
+   there is no block-wide scratch and the race above cannot recur.
+
+| N | D | causal | original | coalesced | query-tiled, WR=16 | speedup | % of SDPA fp32 |
+|---|---|---|---|---|---|---|---|
+| 512 | 128 | no | 0.479 ms | 0.340 | 0.181 | 2.7x | 69% |
+| 2048 | 64 | no | 3.69 | 3.02 | 1.48 | 2.5x | 24% |
+| 2048 | 128 | no | 7.08 | 5.15 | 2.33 | 3.0x | 21% |
+| 4096 | 64 | no | 14.5 | 11.1 | 4.71 | 3.1x | 21% |
+| 4096 | 128 | no | 28.3 | 19.4 | 7.59 | 3.7x | 22% |
+| 4096 | 128 | yes | 14.3 | 10.2 | 3.95 | 3.6x | 29% |
+
+N=4096 D=128 goes from 303 GFLOP/s to 1.13 TFLOP/s, 9.6% of the FP32 ceiling.
+Rows per block was swept, not guessed: WR=4 takes 25.8 ms, WR=8 10.4 ms, and
+WR=16 7.6 ms. WR=32 needs more than the default 48 KB of shared memory. At
+N=128 the query-tiled kernel is slower, because 8 blocks cannot fill 36 SMs.
+
+The next limit is arithmetic in FP32 CUDA cores. SDPA and Triton run the
+multiplies on tensor cores, which is the remaining 4-5x.
 
 ## Layout
 
@@ -384,6 +425,7 @@ cuda/
   04_attention_naive.cu       M3, one thread per output row
   05_attention_tiled.cu       M4, shared-memory tiles
   06_attention_flash.cu       M8, fused online softmax, causal, benchmark harness
+  07_attention_flash_qtile.cu M8, query-tiled: one warp per row, WR rows share K/V
   cpu_emu.h, test_flash_cpu.cpp   run the kernel with no GPU
 rtl/
   dot4.sv          time-multiplexed MAC, SCALE_EN folds 1/√d, ROUND_EN picks rounding

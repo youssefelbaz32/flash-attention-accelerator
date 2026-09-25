@@ -100,8 +100,10 @@ cat <<'NOTE'
     nvcc -O3 -arch=native -o build/naive   cuda/04_attention_naive.cu
     nvcc -O3 -arch=native -o build/tiled   cuda/05_attention_tiled.cu
     nvcc -O3 -arch=native -o build/flash   cuda/06_attention_flash.cu
-    ./build/flash            # toy dims vs data/O_golden.npy, expect ~1.19e-07
+    ./build/flash            # toy dims vs data/O_golden.npy, expect ~1.77e-07
     ./build/flash bench      # the real-dimension sweep
+    nvcc -O3 -arch=native -o build/flash_qtile cuda/07_attention_flash_qtile.cu
+    ./build/flash_qtile bench   # query-tiled, same sweep
     ncu --set full -o flash_prof ./build/flash 4096 128 0
 
   GPU (triton):
