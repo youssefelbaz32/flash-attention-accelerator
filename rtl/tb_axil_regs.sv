@@ -68,15 +68,15 @@ module tb_axil_regs;
   task automatic axi_write(input [AW-1:0] a, input [31:0] d, input [3:0] strb = 4'hF);
     aw_done = 0; w_done = 0;
     @(negedge clk); awaddr = a; awvalid = 1; wdata = d; wstrb = strb; wvalid = 1; bready = 1;
-    forever begin
+    // No `break`: Icarus 12 (ubuntu-latest's apt package) does not support it.
+    while (!(aw_done && w_done)) begin
       @(posedge clk);
       if (awvalid && awready) aw_done = 1;
       if (wvalid  && wready)  w_done  = 1;
       #1;
       if (aw_done) awvalid = 0;
       if (w_done)  wvalid  = 0;
-      if (aw_done && w_done) break;
-      @(negedge clk);
+      if (!(aw_done && w_done)) @(negedge clk);
     end
     while (!bvalid) @(negedge clk);
     @(posedge clk); #1 bready = 0;
