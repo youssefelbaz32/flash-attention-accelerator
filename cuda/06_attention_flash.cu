@@ -33,7 +33,8 @@
 // __syncthreads() pairs below are buying.
 //
 // BUILD (from the project root):
-//   nvcc -O3 -arch=sm_80 -o flash cuda/06_attention_flash.cu && ./flash
+//   nvcc -O3 -arch=native -o flash cuda/06_attention_flash.cu && ./flash
+//   (-arch=native needs CUDA 11.5+; otherwise ./preflight.sh prints your sm_XX)
 //   ./flash 4                 # toy dims, diffed against data/O_golden.npy
 //   ./flash 4096 128 1        # N=4096, D=128, causal
 //   ./flash bench             # the full sweep for the results table

@@ -10,10 +10,12 @@ S = Q·Kᵀ / √d      →      P = softmax(S)      →      O = P·V
 ```
 
 ```bash
-./run_all.sh
+./preflight.sh      # checks the toolchain, prints your GPU's sm_XX
+./run_all.sh        # reproduces every number below. No GPU or FPGA needed.
 ```
 
-That reproduces every number below. No GPU or FPGA needed.
+On a Windows machine, see [docs/SETUP_windows_gpu.md](docs/SETUP_windows_gpu.md).
+Short version: WSL2 for the software flow, native Windows for Vivado.
 
 [![correctness](https://github.com/youssefelbaz32/flash-attention-accelerator/actions/workflows/ci.yml/badge.svg)](../../actions)
 

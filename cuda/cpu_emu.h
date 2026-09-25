@@ -28,6 +28,9 @@
 #include <mutex>
 #include <condition_variable>
 #include <algorithm>
+// std::thread needs -pthread on Linux/WSL. On MSVC it is built in, but this
+// harness has only been exercised with g++ and clang++; if you are on native
+// Windows, WSL2 is the path of least resistance for the whole software flow.
 
 #define __global__
 #define __device__

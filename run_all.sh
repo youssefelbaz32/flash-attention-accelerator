@@ -8,6 +8,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
 
+# pick a compiler that exists rather than assuming `c++`
+for c in g++ clang++ c++; do command -v $c >/dev/null && { CXX=$c; break; }; done
+: "${CXX:?no C++ compiler found; run ./preflight.sh}"
+
 RTL="rtl/dot4.sv rtl/qkt.sv rtl/row_max.sv rtl/exp_rom.sv rtl/softmax.sv rtl/pv.sv"
 hr() { printf '\n\033[1m=== %s ===\033[0m\n' "$1"; }
 
@@ -76,7 +80,7 @@ hr "M6 planning  generic link budget"
 python3 python/07_link_budget.py | tail -9
 
 hr "M8 CUDA  fused kernel verified on CPU (no GPU required)"
-c++ -std=c++17 -O2 -DCPU_EMU -I cuda -o build/flash_cpu cuda/test_flash_cpu.cpp
+"${CXX:-c++}" -std=c++17 -O2 -pthread -DCPU_EMU -I cuda -o build/flash_cpu cuda/test_flash_cpu.cpp
 ./build/flash_cpu
 
 hr "lint  verilator, all RTL"
@@ -91,9 +95,11 @@ cat <<'NOTE'
 
 === Steps that need hardware ===
   GPU (nvcc):
-    nvcc -O3 -arch=sm_80 -o build/naive   cuda/04_attention_naive.cu
-    nvcc -O3 -arch=sm_80 -o build/tiled   cuda/05_attention_tiled.cu
-    nvcc -O3 -arch=sm_80 -o build/flash   cuda/06_attention_flash.cu
+    # -arch=native matches whatever card is installed (CUDA 11.5+). If your nvcc
+    # is older, run ./preflight.sh and it prints the exact sm_XX for your GPU.
+    nvcc -O3 -arch=native -o build/naive   cuda/04_attention_naive.cu
+    nvcc -O3 -arch=native -o build/tiled   cuda/05_attention_tiled.cu
+    nvcc -O3 -arch=native -o build/flash   cuda/06_attention_flash.cu
     ./build/flash            # toy dims vs data/O_golden.npy, expect ~1.19e-07
     ./build/flash bench      # the real-dimension sweep
     ncu --set full -o flash_prof ./build/flash 4096 128 0
