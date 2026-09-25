@@ -94,3 +94,6 @@ wrong.
 
 The last one is the one to watch. If it climbs as BLK increases, the DMA has
 become the limit and further lanes are wasted silicon.
+
+Timing paths and the optimization backlog are tracked in
+[docs/07_fpga_timing_and_optimizations.md](../docs/07_fpga_timing_and_optimizations.md).
