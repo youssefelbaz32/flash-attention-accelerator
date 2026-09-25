@@ -71,15 +71,15 @@ module tb_attention_axi;
   task automatic axi_write(input [AW-1:0] a, input [31:0] d);
     aw_done = 0; w_done = 0;
     @(negedge aclk); awaddr=a; awvalid=1; wdata=d; wstrb=4'hF; wvalid=1; bready=1;
-    forever begin
+    // No `break`: Icarus 12 (ubuntu-latest's apt package) does not support it.
+    while (!(aw_done && w_done)) begin
       @(posedge aclk);
       if (awvalid && awready) aw_done = 1;
       if (wvalid  && wready)  w_done  = 1;
       #1;
       if (aw_done) awvalid = 0;
       if (w_done)  wvalid  = 0;
-      if (aw_done && w_done) break;
-      @(negedge aclk);
+      if (!(aw_done && w_done)) @(negedge aclk);
     end
     while (!bvalid) @(negedge aclk);
     @(posedge aclk); #1 bready = 0;
