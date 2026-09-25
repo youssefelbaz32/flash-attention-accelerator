@@ -109,12 +109,18 @@ class Profile:
 # CHUNK 2: the accelerator
 # -----------------------------------------------------------------------------
 class AttentionAccel:
-    def __init__(self, bitfile, f_pl=150e6, use_irq=True):
+    def __init__(self, bitfile, f_pl=None, use_irq=True):
         if not HAVE_PYNQ:
             raise RuntimeError("pynq not available; this runs on the board")
         self.ol   = Overlay(bitfile)
-        self.regs = self.ol.axil_regs_0          # rename to match your block design
-        self.dma  = self.ol.axi_dma_0
+        # Cell names from fpga/build_bd.tcl, which PYNQ reads out of the .hwh.
+        self.regs = self.ol.acc
+        self.dma  = self.ol.dma
+        # The overlay sets the PL clock from the .hwh, so read it back rather
+        # than trusting a number typed on the command line.
+        if f_pl is None:
+            from pynq import Clocks
+            f_pl = Clocks.fclk0_mhz * 1e6
         self.f_pl = f_pl
         self.use_irq = use_irq
 
@@ -134,8 +140,11 @@ class AttentionAccel:
         print(f"bitstream: N={self.N} D={self.D} DV={self.DV} BLK={self.BLK} "
               f"Q{self.DW-self.FRAC}.{self.FRAC}")
 
-        self._in  = allocate(shape=(self.N*self.D*2 + self.N*self.DV,), dtype=np.int16)
-        self._out = allocate(shape=(self.N*self.DV,), dtype=np.int16)
+        # One element per 32-bit stream beat: attention_axi takes the low DW bits
+        # of each input beat and sign-extends each output. int16 buffers would
+        # pack two elements per beat and the DMA would move half the data.
+        self._in  = allocate(shape=(self.N*self.D*2 + self.N*self.DV,), dtype=np.int32)
+        self._out = allocate(shape=(self.N*self.DV,), dtype=np.int32)
 
     def check_shape(self, N, D, DV):
         """Refuse to run on a shape mismatch. This is the failure that otherwise
@@ -148,7 +157,7 @@ class AttentionAccel:
     def run(self, Qq, Kq, Vq, timeout=5.0):
         self.check_shape(Qq.shape[0], Qq.shape[1], Vq.shape[1])
 
-        self._in[:] = np.concatenate([Qq.ravel(), Kq.ravel(), Vq.ravel()]).astype(np.int16)
+        self._in[:] = np.concatenate([Qq.ravel(), Kq.ravel(), Vq.ravel()]).astype(np.int32)
 
         self.regs.write(Reg.CTRL, CTRL_SOFT_RESET)
         self.regs.write(Reg.CTRL, CTRL_IRQ_EN if self.use_irq else 0)
@@ -182,11 +191,12 @@ class AttentionAccel:
         The interrupt is worth having not because polling is slow but because it
         frees the A53 during a long run and, more usefully, it makes a hang look
         like a timeout instead of a spin."""
-        if self.use_irq and hasattr(self.regs, "interrupt"):
+        # PYNQ names the interrupt after the IP's pin, which is `irq`.
+        if self.use_irq and hasattr(self.regs, "irq"):
             import asyncio
             try:
                 asyncio.get_event_loop().run_until_complete(
-                    asyncio.wait_for(self.regs.interrupt.wait(), timeout))
+                    asyncio.wait_for(self.regs.irq.wait(), timeout))
                 self.regs.write(Reg.ISR, 1)          # write-1-to-clear
                 return
             except asyncio.TimeoutError:
@@ -262,7 +272,8 @@ if __name__ == "__main__":
     ap.add_argument("--offline", action="store_true",
                     help="check the reporting math with no board attached")
     ap.add_argument("--bit", required=False, help="path to the .bit overlay")
-    ap.add_argument("--fpl", type=float, default=150e6, help="PL clock in Hz")
+    ap.add_argument("--fpl", type=float, default=None,
+                    help="PL clock in Hz (default: read from the overlay)")
     ap.add_argument("--poll", action="store_true", help="poll instead of using the interrupt")
     ap.add_argument("--runs", type=int, default=1)
     args = ap.parse_args()

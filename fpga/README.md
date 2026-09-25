@@ -5,15 +5,42 @@ Target part `xczu1cg-sbva484-1-e`. Everything here is run from the project root.
 ```bash
 vivado -mode batch -source fpga/package_ip.tcl          # package the IP
 vivado -mode batch -source fpga/build_bd.tcl            # default N=4 D=4 BLK=2
-vivado -mode batch -source fpga/build_bd.tcl -tclargs 8 16 16 16   # BLK N D DV
+vivado -mode batch -source fpga/build_bd.tcl -tclargs 8 16 16 16 100   # BLK N D DV MHz
 ./fpga/sweep.sh                                         # the whole Pareto curve
 ```
 
-**Not yet run.** These scripts are written against the documented Vivado TCL API
-but have not been executed, because there is no Vivado on the machine they were
-written on. Expect to fix something the first time. The most likely candidates
-are the `apply_bd_automation` config strings, which change between Vivado
-versions, and the exact `CONFIG.PSU__*` names for the ZUBoard board preset.
+On Windows, run the sweep from Git Bash with the launcher named explicitly:
+`VIVADO=/c/Xilinx/Vivado/2024.1/bin/vivado.bat ./fpga/sweep.sh`.
+
+Verified with Vivado 2024.1. Each build writes `attn_<tag>.bit`, `.hwh` and
+`.xsa` to `fpga/build/`. PYNQ needs the `.bit` and `.hwh` side by side.
+
+The project is part-based, not board-based: the Avnet ZUBoard board files are
+not installed, so the PS DDR and MIO settings in the `.xsa` are Vivado's
+defaults, not the board's. That does not matter under PYNQ, which boots with
+its own PS configuration and only loads the PL. It would matter for a bare-metal
+or PetaLinux flow built from this `.xsa`.
+
+## Results (Vivado 2024.1, 100 MHz PL clock)
+
+| N | D | BLK | LUT | FF | DSP | BRAM | WNS (ns) | fmax (MHz) |
+|---|---|---|---|---|---|---|---|---|
+| 4 | 4 | 2 | 5,323 | 7,812 | 8 | 3 | +1.97 | 124.5 |
+| 16 | 16 | 2 | 11,159 | 24,505 | 8 | 3 | +1.03 | 111.4 |
+| 16 | 16 | 4 | 11,735 | 25,621 | 10 | 3 | +0.18 | 101.8 |
+| 16 | 16 | 8 | 12,771 | 27,830 | 14 | 3 | -0.47 | 95.5 |
+| 16 | 16 | 16 | 13,642 | 32,144 | 22 | 3 | -5.38 | 65.0 |
+
+Counts are the whole design, PS glue and DMA included (the part has 37,440 LUTs,
+74,880 FFs, 216 DSPs). fmax is `1000 / (10 - WNS)`. BLK 8 and 16 miss timing
+at 100 MHz; their bitstreams exist but should not go on the board as is.
+
+The limit is the datapath, not the size of the part. The critical path starts
+at a lane's dot-product DSP, goes through the max across lanes and ends in the
+online-softmax rebase (`l_run`). It is 23 logic levels at BLK=2 and 50 at
+BLK=16, so each doubling of BLK costs clock. The first build, at 150 MHz,
+failed by 0.97 ns, which is why the default clock is now 100 MHz. Pipelining
+the cross-lane max is the fix that would move the knee.
 
 ## What gets built
 
@@ -47,7 +74,7 @@ Avnet publishes a PYNQ v3.0.1 image for this board:
 <https://github.com/Avnet/ZUBoard_1CG-PYNQ>
 
 ```bash
-sudo python3 python/09_pynq_driver.py --bit fpga/build/attn_N16_D16_BLK8.bit
+sudo python3 python/09_pynq_driver.py --bit fpga/build/attn_N16_D16_BLK4.bit
 ```
 
 The driver reads `BUILD_ID` and the `PARAM` registers first and refuses to run

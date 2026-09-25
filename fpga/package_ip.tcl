@@ -46,7 +46,7 @@ set_property top $ip_name [current_fileset]
 update_compile_order -fileset sources_1
 
 # Fail here rather than three steps later in block design.
-if {[llength [get_msg_config -severity ERROR -count]] > 0} {
+if {[get_msg_config -severity ERROR -count] > 0} {
   puts "ERROR: elaboration problems before packaging"
 }
 
@@ -86,6 +86,12 @@ foreach {p disp} {
 ipx::infer_bus_interface irq xilinx.com:signal:interrupt_rtl:1.0 $core
 set_property value LEVEL_HIGH [ipx::get_bus_parameters SENSITIVITY \
   -of_objects [ipx::get_bus_interfaces irq -of_objects $core] -quiet] -quiet
+
+# ---- clock association ------------------------------------------------------
+# Inference only associates aclk with m_axis. Every interface runs on aclk, and
+# saying so stops block-design validation from guessing.
+set_property value m_axis:s_axis:s_axi_lite [ipx::get_bus_parameters ASSOCIATED_BUSIF \
+  -of_objects [ipx::get_bus_interfaces aclk -of_objects $core]]
 
 # ---- sanity: did the AXI interfaces actually get inferred? ------------------
 set want {s_axi_lite s_axis m_axis irq}
