@@ -30,9 +30,9 @@ module tb_dot4;
   //   in_valid -> wait for out_valid -> sample s -> compare.
   task automatic run(input logic [D*DW-1:0] av, bv, input int exp, input string name);
     @(negedge clk); a_flat = av; b_flat = bv; in_valid = 1;
-    forever begin @(posedge clk); if (in_ready) break; end   // input beat taken
+    @(posedge clk); while (!in_ready) @(posedge clk);         // input beat taken
     @(negedge clk); in_valid = 0;
-    forever begin @(posedge clk); if (out_valid) break; end  // result produced
+    @(posedge clk); while (!out_valid) @(posedge clk);        // result produced
     #1 $display("  %-34s s=%6d  exp=%6d  %s",
                 name, s, exp, (s === exp) ? "PASS" : "FAIL");
   endtask
