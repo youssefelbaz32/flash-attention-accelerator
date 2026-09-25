@@ -104,6 +104,8 @@ cat <<'NOTE'
     ./build/flash bench      # the real-dimension sweep
     nvcc -O3 -arch=native -o build/flash_qtile cuda/07_attention_flash_qtile.cu
     ./build/flash_qtile bench   # query-tiled, same sweep
+    nvcc -O3 -arch=native -o build/flash_wmma cuda/08_attention_flash_wmma.cu
+    ./build/flash_wmma bench    # fp16 tensor cores, same sweep
     ncu --set full -o flash_prof ./build/flash 4096 128 0
 
   GPU (triton):

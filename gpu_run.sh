@@ -49,7 +49,7 @@ mark(){ STATUS="$STATUS\n| $1 | $2 | $3 |"; }
 # ---------------------------------------------------------------- build
 hr "Build"
 BUILT=1
-for k in 04_attention_naive:naive 05_attention_tiled:tiled 06_attention_flash:flash 07_attention_flash_qtile:flash_qtile; do
+for k in 04_attention_naive:naive 05_attention_tiled:tiled 06_attention_flash:flash 07_attention_flash_qtile:flash_qtile 08_attention_flash_wmma:flash_wmma; do
   src="cuda/${k%%:*}.cu"; bin="build/${k##*:}"
   if nvcc -O3 $ARCH -o "$bin" "$src" 2>&1 | tail -5; then
     echo "- built \`$bin\`"
@@ -57,7 +57,7 @@ for k in 04_attention_naive:naive 05_attention_tiled:tiled 06_attention_flash:fl
     echo "- **FAILED** to build \`$src\`"; BUILT=0
   fi
 done
-[ $BUILT -eq 1 ] && mark "build" "PASS" "all four kernels" || mark "build" "FAIL" "see log"
+[ $BUILT -eq 1 ] && mark "build" "PASS" "all five kernels" || mark "build" "FAIL" "see log"
 
 # ---------------------------------------------------------------- correctness
 hr "Correctness at the project's toy dimensions"
@@ -78,6 +78,9 @@ else mark "bench sweep" "FAIL" "see log"; fi
 echo; echo "### query-tiled (07)"
 if run ./build/flash_qtile bench; then mark "qtile bench sweep" "PASS" "24 cases"
 else mark "qtile bench sweep" "FAIL" "see log"; fi
+echo; echo "### tensor cores, fp16 (08)"
+if run ./build/flash_wmma bench; then mark "wmma bench sweep" "PASS" "24 cases"
+else mark "wmma bench sweep" "FAIL" "see log"; fi
 
 # ---------------------------------------------------------------- triton
 hr "Triton, and the head-to-head against PyTorch SDPA"

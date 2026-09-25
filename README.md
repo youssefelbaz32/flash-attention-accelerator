@@ -409,7 +409,38 @@ WR=16 7.6 ms. WR=32 needs more than the default 48 KB of shared memory. At
 N=128 the query-tiled kernel is slower, because 8 blocks cannot fill 36 SMs.
 
 The next limit is arithmetic in FP32 CUDA cores. SDPA and Triton run the
-multiplies on tensor cores, which is the remaining 4-5x.
+multiplies on tensor cores.
+
+3. **Tensor cores** (`08_attention_flash_wmma.cu`). The inputs are fp16, and
+   both matmuls run through WMMA with fp32 accumulation. The softmax stays in
+   fp32, and P is rounded to fp16 before the PV product, as FlashAttention
+   does. Each warp owns 16 query rows and shares no state, so the kernel has no
+   `__syncthreads()` at all. The error is 5e-5 to 4e-4 against a float64
+   reference computed from the same fp16 inputs, which is fp16's rounding
+   floor. All three sanitizers are clean.
+
+Single head, fp16, compared with the faster of cuDNN and memory-efficient SDPA
+at the same shape (torch 2.14):
+
+| N | D | causal | WMMA ms | TFLOP/s | best SDPA ms | % of SDPA | vs original fp32 |
+|---|---|---|---|---|---|---|---|
+| 512 | 128 | no | 0.124 | 1.08 | 0.037 | 29% | 3.9x |
+| 2048 | 64 | no | 0.350 | 3.07 | 0.103 | 30% | 10.6x |
+| 4096 | 64 | no | 1.22 | 3.51 | 0.245 | 20% | 11.9x |
+| 4096 | 128 | no | 2.23 | 3.86 | 0.289 | 13% | 12.7x |
+| 4096 | 128 | yes | 1.24 | 3.45 | 0.249 | 20% | 11.5x |
+
+The "vs original" column crosses dtypes, fp16 against fp32, so read it as what
+the whole path bought, not as a like-for-like kernel comparison.
+
+3.86 TFLOP/s is 10% of the measured 39.2 TFLOP/s tensor-core ceiling. Two
+known costs remain. Each warp still reads K and V from L2 on its own, because
+nothing is shared through shared memory yet. And the output accumulator makes a
+round trip through shared memory every tile, because WMMA's fragment layout is
+opaque and the per-row rescale by `corr` needs to know which row each element
+belongs to. The next steps are staging K and V through shared memory with
+`cp.async` double buffering, and moving to `mma.sync`, whose register layout is
+documented, so O can stay in registers.
 
 ## Layout
 
@@ -426,6 +457,7 @@ cuda/
   05_attention_tiled.cu       M4, shared-memory tiles
   06_attention_flash.cu       M8, fused online softmax, causal, benchmark harness
   07_attention_flash_qtile.cu M8, query-tiled: one warp per row, WR rows share K/V
+  08_attention_flash_wmma.cu  M8, fp16 tensor cores via WMMA, 16 rows per warp
   cpu_emu.h, test_flash_cpu.cpp   run the kernel with no GPU
 rtl/
   dot4.sv          time-multiplexed MAC, SCALE_EN folds 1/√d, ROUND_EN picks rounding
