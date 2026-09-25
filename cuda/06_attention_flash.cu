@@ -70,6 +70,12 @@
 // Max value dim held in registers per thread. DV <= BC keeps it at one
 // accumulator per thread, which is the fast path.
 #define MAX_DV 128
+// K is staged through shared memory KC feature columns at a time. Reading K
+// straight from global, thread tid walks its own key row, so the 32 lanes of a
+// warp sit D floats apart and every load touches 32 different sectors. Nsight
+// measured 7.1 useful bytes per 32-byte sector and L1 at 98% of peak. Staging
+// lets consecutive threads load consecutive floats of one row instead.
+#define KC 32
 
 // =============================================================================
 // CHUNK 1: block-wide reductions
@@ -148,6 +154,7 @@ __inline__ __device__ float blockReduceSum(float v, float* scratch) {
 //   grid  = N blocks (one per query row)
 //   block = BC threads (one per key in the tile)
 //   shared = Q row (D floats) + score tile (BC floats) + reduction scratch
+//            + K chunk (KC x (BC+1) floats, transposed, padded against conflicts)
 // -----------------------------------------------------------------------------
 __global__ void attention_flash(const float* __restrict__ Q,
                                 const float* __restrict__ K,
@@ -158,6 +165,7 @@ __global__ void attention_flash(const float* __restrict__ Q,
     float* sQ       = smem;              // D floats  -- the query row, reused
     float* sS       = sQ + D;            // BC floats -- this tile's scores
     float* scratch  = sS + BC;           // 33 floats -- 32 warp partials + broadcast
+    float* sK       = scratch + 33;      // KC x (BC+1) floats -- K chunk, sK[c][r]
 
     const int i   = blockIdx.x;          // THIS BLOCK OWNS QUERY ROW i
     const int tid = threadIdx.x;
@@ -188,12 +196,28 @@ __global__ void attention_flash(const float* __restrict__ Q,
         const int valid = (j < j_end);
 
         // -- scores for this tile -------------------------------------------
-        float s = -INFINITY;
-        if (valid) {
-            float dot = 0.0f;
-            for (int k = 0; k < D; k++) dot += sQ[k] * K[(size_t)j * D + k];
-            s = dot * scale;
+        // Stage K[tile .. tile+BC) x [kc .. kc+KC) into shared, transposed. On
+        // the load, consecutive threads take consecutive columns of one row, so
+        // a warp reads one contiguous 128-byte run of K. On the compute, thread
+        // r reads sK[c][r], consecutive threads hit consecutive banks, and the
+        // BC+1 row pitch keeps the transposed store conflict-free too. The
+        // accumulation order over k is unchanged, so the result is bit-identical.
+        const int rows = min(BC, j_end - tile);
+        float dot = 0.0f;
+        for (int kc = 0; kc < D; kc += KC) {
+            const int cols = min(KC, D - kc);
+            for (int e = tid; e < KC * BC; e += blockDim.x) {
+                const int r = e / KC, c = e % KC;
+                sK[c * (BC + 1) + r] = (r < rows && c < cols)
+                    ? K[(size_t)(tile + r) * D + kc + c] : 0.0f;
+            }
+            __syncthreads();
+            if (valid)
+                for (int c = 0; c < cols; c++)
+                    dot += sQ[kc + c] * sK[c * (BC + 1) + tid];
+            __syncthreads();                 // sK is overwritten next chunk
         }
+        float s = valid ? dot * scale : -INFINITY;
         sS[tid] = valid ? s : 0.0f;
 
         // -- the rebase ------------------------------------------------------
@@ -311,7 +335,7 @@ Result run_case(int N, int D, int DV, int causal, bool check, int iters,
     CUDA_CHECK(cudaMemcpy(dK, Kp, szQ*sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(dV, Vp, szV*sizeof(float), cudaMemcpyHostToDevice));
 
-    size_t shmem = (D + BC + 33) * sizeof(float);
+    size_t shmem = (D + BC + 33 + KC * (BC + 1)) * sizeof(float);
 
     // warm-up: the first launch pays JIT / context / cache-cold costs that have
     // nothing to do with the kernel. Timing it is the most common way to

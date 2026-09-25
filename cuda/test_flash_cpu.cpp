@@ -79,7 +79,7 @@ static int run(int N, int D, int DV, int causal, double tol) {
     // BC threads per block is what the kernel assumes for its shared layout;
     // use a smaller block when N is small so the test stays quick.
     int bdim = (BC < ((32 > N) ? 32 : N)) ? BC : ((32 > N) ? 32 : N);
-    launch(N, bdim, (size_t)D + BC + 33, Q.data(), K.data(), V.data(), O.data(),
+    launch(N, bdim, (size_t)D + BC + 33 + KC * (BC + 1), Q.data(), K.data(), V.data(), O.data(),
            N, D, DV, causal);
 
     std::vector<double> ref((size_t)N*DV);
