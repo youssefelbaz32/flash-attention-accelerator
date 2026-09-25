@@ -132,3 +132,41 @@ you are still debugging the DMA, which is exactly when you would not notice.
 
 The GPU half is a much better return on time, and it needs nothing from the
 FPGA half.
+
+## Running the GPU side unattended
+
+```bash
+./gpu_run.sh
+```
+
+One command, no GUI, walk away. It detects your GPU and picks the arch, builds
+all three kernels, runs the toy correctness check, runs the 24-case benchmark
+sweep, runs Triton against PyTorch SDPA, attempts Nsight Compute, and writes
+everything to `results/gpu_<date>.md` in a form you can paste into the blog.
+
+**No stage aborts the run.** Each records PASS, FAIL or SKIP with a reason, and
+the summary table at the end says what to chase. Losing a working benchmark
+sweep because profiling was permission-blocked would be absurd.
+
+Expect **5 to 10 minutes** total. The benchmark sweep is under a minute; most of
+the time is nvcc and Triton's JIT.
+
+### The one thing that may not work: Nsight under WSL2
+
+Benchmarking in WSL2 is fine. *Profiling* is restricted, and `ncu` may simply
+refuse. The script expects this and marks it SKIP rather than failing.
+
+Two ways round it:
+
+- **`sudo ncu ...`** if the failure is `ERR_NVGPUCTRPERM`. Recent drivers block
+  GPU counter access for non-root users.
+- **Profile from native Windows.** Build the kernel with the Windows CUDA
+  toolkit and run `ncu.exe` there. Still no GUI needed:
+  ```
+  nvcc -O3 -arch=native -o flash.exe cuda\06_attention_flash.cu
+  ncu.exe --set full -o flash_prof flash.exe 4096 128 0
+  ncu.exe --import flash_prof.ncu-rep --page details
+  ```
+
+The GUI is only for interactive exploration. Every metric is available from the
+CLI, and `--import ... --page details` prints them as text.
