@@ -328,6 +328,8 @@ tile of query rows.
 
 ### Roofline
 
+![Roofline with measured ceilings and each kernel's position](docs/figures/m8_roofline.svg)
+
 The ceilings are measured on this card, not taken from a spec sheet. The SM
 clock held at 2400 MHz, drawing 58 to 72 W.
 
@@ -335,12 +337,20 @@ clock held at 2400 MHz, drawing 58 to 72 W.
 |---|---|---|
 | FP32 compute | 8192^3 SGEMM, TF32 off | 11.8 TFLOP/s |
 | FP16 tensor-core compute | 8192^3 fp16 GEMM | 39.2 TFLOP/s |
-| DRAM bandwidth | 1 GB device copy | 223 GB/s |
-| L2 bandwidth | 8 MB device copy, fits the 32 MB L2 | 847 GB/s |
+| DRAM read bandwidth | 1 GB read-only stream | 237 GB/s |
+| L2 read bandwidth | 2-16 MB read-only `ld.cg` stream, fits the 32 MB L2 | 1.30 TB/s |
 
-Ridge points: 53 FLOP/byte against DRAM and 14 FLOP/byte against L2 for FP32.
+Ridge points for FP32: 50 FLOP/byte against DRAM and 9 FLOP/byte against L2.
 
-**CUDA kernel, N=4096 D=128: bound by L2 bandwidth.** Each of the N blocks
+A correction. The first version of this table used a device-to-device copy for
+the L2 ceiling and got 847 GB/s. A copy splits the bandwidth between reads and
+writes, and attention only reads, so it understated the roof by about a third.
+The figure exposed it: the coalesced kernel plotted above its own roof. Nsight
+agrees with the read-only number. Under the profiler the original kernel moved
+19.4 GB in 35.3 ms, 550 GB/s, and Nsight reported L2 throughput at 42%, which
+is 550 / 1300.
+
+**CUDA kernel, N=4096 D=128: far below every roof.** Each of the N blocks
 streams all of K and V, so the traffic is `N * N * D * 8` bytes. That is 17.2
 GB for 8.6 GFLOP, an intensity of 0.5 FLOP/byte, far left of either ridge. K
 and V together are 4 MB and fit in L2, so that traffic is L2 traffic. DRAM only
@@ -349,8 +359,8 @@ sees the compulsory 8 MB, about 1000 FLOP/byte, which is nowhere near a limit.
 | | value | share of ceiling |
 |---|---|---|
 | achieved compute | 303 GFLOP/s | 2.6% of FP32 |
-| modeled L2 traffic | 607 GB/s | 72% of L2 |
-| L2 roof at 0.5 FLOP/byte | 424 GFLOP/s | kernel reaches 72% of it |
+| L2 traffic, Nsight-counted bytes over benchmark time | 686 GB/s | 53% of L2 read |
+| L2 roof at 0.44 FLOP/byte | 572 GFLOP/s | kernel reaches 53% of it |
 
 So the kernel is not slow at arithmetic. It is re-reading the same K and V from
 L2 once per query row.
@@ -403,6 +413,8 @@ memcheck and synccheck.
 | 4096 | 128 | no | 28.3 | 19.4 | 7.59 | 3.7x | 22% |
 | 4096 | 128 | yes | 14.3 | 10.2 | 3.95 | 3.6x | 29% |
 
+![Kernel time at N=4096 D=128 for each step](docs/figures/m8_journey.svg)
+
 N=4096 D=128 goes from 303 GFLOP/s to 1.13 TFLOP/s, 9.6% of the FP32 ceiling.
 Rows per block was swept, not guessed: WR=4 takes 25.8 ms, WR=8 10.4 ms, and
 WR=16 7.6 ms. WR=32 needs more than the default 48 KB of shared memory. At
@@ -429,6 +441,8 @@ at the same shape (torch 2.14):
 | 4096 | 64 | no | 1.22 | 3.51 | 0.245 | 20% | 11.9x |
 | 4096 | 128 | no | 2.23 | 3.86 | 0.289 | 13% | 12.7x |
 | 4096 | 128 | yes | 1.24 | 3.45 | 0.249 | 20% | 11.5x |
+
+![Time against N for each kernel and SDPA](docs/figures/m8_scaling.svg)
 
 The "vs original" column crosses dtypes, fp16 against fp32, so read it as what
 the whole path bought, not as a like-for-like kernel comparison.
@@ -470,6 +484,7 @@ rtl/
   flash_top.sv     M8, online softmax, state independent of N
   vectors/         golden .hex emitted by the Python spec
 docs/project_log.md   full build log, every bug and every measurement
+docs/figures/         M8 SVG figures, and make_m8_figures.py to regenerate them
 ```
 
 ## Parameters

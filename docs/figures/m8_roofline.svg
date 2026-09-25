@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 520" role="img" aria-label="Log-log roofline with measured L2 bandwidth, FP32 and fp16 tensor-core ceilings, showing the original kernel at 0.44 FLOP per byte and 303 GFLOP/s rising to the tensor-core kernel at 3.86 TFLOP/s">
+  <style>
+    .t{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;font-weight:600;fill:#dce4ee}
+    .s{font-family:system-ui,sans-serif;font-size:11px;fill:#8493a4}
+    .a{font-family:system-ui,sans-serif;font-size:12px;fill:#8493a4}
+    .l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;fill:#dce4ee}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:#8493a4}
+    .bg{fill:#141b24;stroke:#33404f;stroke-width:1.5}
+    .grid{stroke:#26313d;stroke-width:1}
+    .axis{stroke:#33404f;stroke-width:1}
+  </style>
+  <rect class="bg" x="4" y="4" width="1112" height="512" rx="12"/>
+  <text class="t" x="32" y="42">Where each kernel sits on the roofline</text>
+  <text class="s" x="32" y="62">Ceilings measured on this card. N = 4096, D = 128. Filled: intensity counted by Nsight. Hollow: modeled from the access pattern.</text>
+  <line class="grid" x1="110" y1="460.0" x2="860" y2="460.0"/>
+  <text class="m" x="100" y="464.0" text-anchor="end">100 GFLOP/s</text>
+  <line class="grid" x1="110" y1="329.0" x2="860" y2="329.0"/>
+  <text class="m" x="100" y="333.0" text-anchor="end">1 TFLOP/s</text>
+  <line class="grid" x1="110" y1="198.0" x2="860" y2="198.0"/>
+  <text class="m" x="100" y="202.0" text-anchor="end">10 TFLOP/s</text>
+  <line class="grid" x1="110.0" y1="96" x2="110.0" y2="460"/>
+  <text class="m" x="110.0" y="482" text-anchor="middle">0.1</text>
+  <line class="grid" x1="337.2" y1="96" x2="337.2" y2="460"/>
+  <text class="m" x="337.2" y="482" text-anchor="middle">1</text>
+  <line class="grid" x1="564.4" y1="96" x2="564.4" y2="460"/>
+  <text class="m" x="564.4" y="482" text-anchor="middle">10</text>
+  <line class="grid" x1="791.6" y1="96" x2="791.6" y2="460"/>
+  <text class="m" x="791.6" y="482" text-anchor="middle">100</text>
+  <text class="a" x="485" y="504" text-anchor="middle">arithmetic intensity, FLOP per byte from L2</text>
+  <polyline points="110.0,445.1 554.8,188.5 860.0,188.5" fill="none" stroke="#5b6b7d" stroke-width="2"/>
+  <text class="m" x="854.0" y="180.5" text-anchor="end">FP32 CUDA cores 11.8 TFLOP/s</text>
+  <polyline points="110.0,445.1 673.3,120.2 860.0,120.2" fill="none" stroke="#5b6b7d" stroke-width="2"/>
+  <text class="m" x="854.0" y="112.2" text-anchor="end">fp16 tensor cores 39.2 TFLOP/s</text>
+  <text class="m" x="156.4" y="408.3" transform="rotate(-33 156.4 408.3)">L2 read 1.30 TB/s</text>
+  <circle cx="256.2" cy="396.9" r="7" fill="#3987e5" stroke="#3987e5" stroke-width="2.5"><title>Original: 0.44 FLOP/byte, 303 GFLOP/s</title></circle>
+  <text class="l" x="270.2" y="414.9">Original · 303 GFLOP/s</text>
+  <circle cx="256.2" cy="375.4" r="7" fill="#141b24" stroke="#3987e5" stroke-width="2.5"><title>Coalesced K: 0.44 FLOP/byte, 442 GFLOP/s</title></circle>
+  <text class="l" x="270.2" y="365.4">Coalesced K · 442 GFLOP/s</text>
+  <circle cx="529.8" cy="321.9" r="7" fill="#141b24" stroke="#d97706" stroke-width="2.5"><title>Query-tiled: 7.04 FLOP/byte, 1132 GFLOP/s</title></circle>
+  <text class="l" x="541.8" y="325.9">Query-tiled · 1.13 TFLOP/s</text>
+  <circle cx="610.8" cy="252.2" r="7" fill="#141b24" stroke="#0d9488" stroke-width="2.5"><title>Tensor cores: 16 FLOP/byte, 3857 GFLOP/s</title></circle>
+  <text class="l" x="622.8" y="256.2">Tensor cores · 3.86 TFLOP/s</text>
+</svg>

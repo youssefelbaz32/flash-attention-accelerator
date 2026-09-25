@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 430" role="img" aria-label="Bar chart of kernel time at N=4096, D=128: original 28.3 ms, coalesced 19.4 ms, query-tiled 7.59 ms, tensor cores 2.23 ms, against cuDNN at 0.29 ms">
+  <style>
+    .t{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;font-weight:600;fill:#dce4ee}
+    .s{font-family:system-ui,sans-serif;font-size:11px;fill:#8493a4}
+    .a{font-family:system-ui,sans-serif;font-size:12px;fill:#8493a4}
+    .l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;fill:#dce4ee}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:#8493a4}
+    .bg{fill:#141b24;stroke:#33404f;stroke-width:1.5}
+    .grid{stroke:#26313d;stroke-width:1}
+    .axis{stroke:#33404f;stroke-width:1}
+  </style>
+  <rect class="bg" x="4" y="4" width="1112" height="422" rx="12"/>
+  <text class="t" x="32" y="42">Following the profile: 28.3 ms to 2.23 ms</text>
+  <text class="s" x="32" y="62">Fused attention forward, N = 4096, D = 128, one head. RTX 4070 Laptop GPU. Shorter is faster.</text>
+  <line class="grid" x1="300.0" y1="92" x2="300.0" y2="380"/>
+  <text class="m" x="300.0" y="400" text-anchor="middle">0 ms</text>
+  <line class="grid" x1="520.0" y1="92" x2="520.0" y2="380"/>
+  <text class="m" x="520.0" y="400" text-anchor="middle">10 ms</text>
+  <line class="grid" x1="740.0" y1="92" x2="740.0" y2="380"/>
+  <text class="m" x="740.0" y="400" text-anchor="middle">20 ms</text>
+  <line class="grid" x1="960.0" y1="92" x2="960.0" y2="380"/>
+  <text class="m" x="960.0" y="400" text-anchor="middle">30 ms</text>
+  <text class="l" x="32" y="122">Original</text>
+  <text class="s" x="32" y="138">fp32, one block per query row</text>
+  <rect x="300" y="104" width="623.5" height="36" rx="4" fill="#3987e5" fill-opacity="0.85" stroke="#3987e5"/>
+  <text class="l" x="933.5" y="127">28.3 ms</text>
+  <text class="l" x="32" y="178">Coalesced K</text>
+  <text class="s" x="32" y="194">stage K through shared memory</text>
+  <rect x="300" y="160" width="427.7" height="36" rx="4" fill="#3987e5" fill-opacity="0.85" stroke="#3987e5"/>
+  <text class="l" x="737.7" y="183">19.4 ms  ·  1.46x faster</text>
+  <text class="l" x="32" y="234">Query-tiled</text>
+  <text class="s" x="32" y="250">16 rows share each K/V tile</text>
+  <rect x="300" y="216" width="167.0" height="36" rx="4" fill="#d97706" fill-opacity="0.85" stroke="#d97706"/>
+  <text class="l" x="477.0" y="239">7.59 ms  ·  3.7x faster</text>
+  <text class="l" x="32" y="290">Tensor cores</text>
+  <text class="s" x="32" y="306">fp16 WMMA, fp32 accumulate</text>
+  <rect x="300" y="272" width="49.1" height="36" rx="4" fill="#0d9488" fill-opacity="0.85" stroke="#0d9488"/>
+  <text class="l" x="359.1" y="295">2.23 ms  ·  12.7x faster</text>
+  <text class="l" x="32" y="346">cuDNN (reference)</text>
+  <text class="s" x="32" y="362">PyTorch SDPA, fp16</text>
+  <rect x="300" y="328" width="6.4" height="36" rx="4" fill="#8493a4" fill-opacity="0.85" stroke="#8493a4"/>
+  <text class="l" x="316.4" y="351">0.29 ms</text>
+  <line class="axis" x1="300" y1="92" x2="300" y2="380"/>
+</svg>

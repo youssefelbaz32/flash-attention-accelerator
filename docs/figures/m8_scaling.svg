@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 500" role="img" aria-label="Log-log line chart of kernel time against N at D=128 for the original fp32 kernel, the query-tiled fp32 kernel, the fp16 tensor-core kernel and the best PyTorch SDPA">
+  <style>
+    .t{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;font-weight:600;fill:#dce4ee}
+    .s{font-family:system-ui,sans-serif;font-size:11px;fill:#8493a4}
+    .a{font-family:system-ui,sans-serif;font-size:12px;fill:#8493a4}
+    .l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;fill:#dce4ee}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:#8493a4}
+    .bg{fill:#141b24;stroke:#33404f;stroke-width:1.5}
+    .grid{stroke:#26313d;stroke-width:1}
+    .axis{stroke:#33404f;stroke-width:1}
+  </style>
+  <rect class="bg" x="4" y="4" width="1112" height="492" rx="12"/>
+  <text class="t" x="32" y="42">Time against sequence length</text>
+  <text class="s" x="32" y="62">D = 128, one head, non-causal. Both axes logarithmic. Each fp32 step is still verified against float64.</text>
+  <line class="grid" x1="110" y1="440.0" x2="830" y2="440.0"/>
+  <text class="m" x="100" y="444.0" text-anchor="end">0.01 ms</text>
+  <line class="grid" x1="110" y1="347.0" x2="830" y2="347.0"/>
+  <text class="m" x="100" y="351.0" text-anchor="end">0.1 ms</text>
+  <line class="grid" x1="110" y1="254.0" x2="830" y2="254.0"/>
+  <text class="m" x="100" y="258.0" text-anchor="end">1 ms</text>
+  <line class="grid" x1="110" y1="161.0" x2="830" y2="161.0"/>
+  <text class="m" x="100" y="165.0" text-anchor="end">10 ms</text>
+  <text class="m" x="155.4" y="462" text-anchor="middle">128</text>
+  <text class="m" x="410.6" y="462" text-anchor="middle">512</text>
+  <text class="m" x="665.7" y="462" text-anchor="middle">2048</text>
+  <text class="m" x="793.3" y="462" text-anchor="middle">4096</text>
+  <text class="a" x="470" y="484" text-anchor="middle">sequence length N</text>
+  <line class="axis" x1="110" y1="440" x2="830" y2="440"/>
+  <polyline points="155.4,388.3 410.6,283.7 665.7,174.9 793.3,118.9" fill="none" stroke="#3987e5" stroke-width="2"/>
+  <circle cx="155.4" cy="388.3" r="4.5" fill="#3987e5" stroke="#141b24" stroke-width="2"><title>Original, fp32, N=128: 0.036 ms</title></circle>
+  <circle cx="410.6" cy="283.7" r="4.5" fill="#3987e5" stroke="#141b24" stroke-width="2"><title>Original, fp32, N=512: 0.479 ms</title></circle>
+  <circle cx="665.7" cy="174.9" r="4.5" fill="#3987e5" stroke="#141b24" stroke-width="2"><title>Original, fp32, N=2048: 7.082 ms</title></circle>
+  <circle cx="793.3" cy="118.9" r="4.5" fill="#3987e5" stroke="#141b24" stroke-width="2"><title>Original, fp32, N=4096: 28.34 ms</title></circle>
+  <polyline points="155.4,376.8 410.6,323.1 665.7,219.9 793.3,172.2" fill="none" stroke="#d97706" stroke-width="2"/>
+  <circle cx="155.4" cy="376.8" r="4.5" fill="#d97706" stroke="#141b24" stroke-width="2"><title>Query-tiled, fp32, N=128: 0.0478 ms</title></circle>
+  <circle cx="410.6" cy="323.1" r="4.5" fill="#d97706" stroke="#141b24" stroke-width="2"><title>Query-tiled, fp32, N=512: 0.1806 ms</title></circle>
+  <circle cx="665.7" cy="219.9" r="4.5" fill="#d97706" stroke="#141b24" stroke-width="2"><title>Query-tiled, fp32, N=2048: 2.3286 ms</title></circle>
+  <circle cx="793.3" cy="172.2" r="4.5" fill="#d97706" stroke="#141b24" stroke-width="2"><title>Query-tiled, fp32, N=4096: 7.587 ms</title></circle>
+  <polyline points="155.4,392.0 410.6,338.2 665.7,272.1 793.3,221.7" fill="none" stroke="#0d9488" stroke-width="2"/>
+  <circle cx="155.4" cy="392.0" r="4.5" fill="#0d9488" stroke="#141b24" stroke-width="2"><title>Tensor cores, fp16, N=128: 0.0328 ms</title></circle>
+  <circle cx="410.6" cy="338.2" r="4.5" fill="#0d9488" stroke="#141b24" stroke-width="2"><title>Tensor cores, fp16, N=512: 0.1242 ms</title></circle>
+  <circle cx="665.7" cy="272.1" r="4.5" fill="#0d9488" stroke="#141b24" stroke-width="2"><title>Tensor cores, fp16, N=2048: 0.6392 ms</title></circle>
+  <circle cx="793.3" cy="221.7" r="4.5" fill="#0d9488" stroke="#141b24" stroke-width="2"><title>Tensor cores, fp16, N=4096: 2.2269 ms</title></circle>
+  <polyline points="155.4,410.2 410.6,387.6 665.7,339.4 793.3,304.1" fill="none" stroke="#8493a4" stroke-width="2" stroke-dasharray="6 4"/>
+  <circle cx="155.4" cy="410.2" r="4.5" fill="#8493a4" stroke="#141b24" stroke-width="2"><title>Best SDPA, fp16, N=128: 0.0209 ms</title></circle>
+  <circle cx="410.6" cy="387.6" r="4.5" fill="#8493a4" stroke="#141b24" stroke-width="2"><title>Best SDPA, fp16, N=512: 0.0366 ms</title></circle>
+  <circle cx="665.7" cy="339.4" r="4.5" fill="#8493a4" stroke="#141b24" stroke-width="2"><title>Best SDPA, fp16, N=2048: 0.1207 ms</title></circle>
+  <circle cx="793.3" cy="304.1" r="4.5" fill="#8493a4" stroke="#141b24" stroke-width="2"><title>Best SDPA, fp16, N=4096: 0.2893 ms</title></circle>
+  <rect x="844" y="112.9" width="10" height="10" rx="2" fill="#3987e5"/>
+  <text class="l" x="860" y="121.9">Original, fp32 · 28.3 ms</text>
+  <rect x="844" y="166.2" width="10" height="10" rx="2" fill="#d97706"/>
+  <text class="l" x="860" y="175.2">Query-tiled, fp32 · 7.59 ms</text>
+  <rect x="844" y="215.7" width="10" height="10" rx="2" fill="#0d9488"/>
+  <text class="l" x="860" y="224.7">Tensor cores, fp16 · 2.23 ms</text>
+  <rect x="844" y="298.1" width="10" height="10" rx="2" fill="#8493a4"/>
+  <text class="l" x="860" y="307.1">Best SDPA, fp16 · 0.29 ms</text>
+</svg>
