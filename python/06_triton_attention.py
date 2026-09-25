@@ -70,6 +70,7 @@ if HAVE_TRITON:
         BLOCK_N: tl.constexpr,      # key columns per streamed tile
         BLOCK_D: tl.constexpr,      # head dim (power of two, padded)
         CAUSAL: tl.constexpr,
+        PREC: tl.constexpr,         # tl.dot input precision: "ieee" for fp32
     ):
         """One program computes BLOCK_M query rows for one (batch, head) pair.
 
@@ -112,7 +113,7 @@ if HAVE_TRITON:
             v = tl.load(v_ptrs, mask=n_idx[:, None] < Nkv, other=0.0)
 
             # scores for this tile: [BLOCK_M, BLOCK_N]
-            s = tl.dot(q, tl.trans(k)) * sm_scale
+            s = tl.dot(q, tl.trans(k), input_precision=PREC) * sm_scale
             s = tl.where(n_idx[None, :] < Nkv, s, float("-inf"))
             if CAUSAL:
                 s = tl.where(offs_m[:, None] >= n_idx[None, :], s, float("-inf"))
@@ -123,7 +124,7 @@ if HAVE_TRITON:
             p     = tl.exp(s - m_new[:, None])
 
             l_i   = l_i * corr + tl.sum(p, 1)
-            acc   = acc * corr[:, None] + tl.dot(p.to(v.dtype), v)
+            acc   = acc * corr[:, None] + tl.dot(p.to(v.dtype), v, input_precision=PREC)
             m_i   = m_new
 
         # ---- ONE division, at the end ---------------------------------------
@@ -155,13 +156,21 @@ def flash_attention(q, k, v, causal=False):
     BLOCK_M, BLOCK_N = 64, 64
     grid = (triton.cdiv(M, BLOCK_M), Z * H)
 
+    # fp32: tl.dot defaults to TF32 (~10 mantissa bits, errors ~2e-3), which
+    # would make the fp32 check meaningless -- ask for IEEE fp32 instead. fp32
+    # tiles are also twice the bytes: at D=128 two pipeline stages need 113 KB
+    # of shared memory, over the 99 KB an sm_89 block gets, so use one stage.
+    # fp16 (the benchmarked path) is unaffected by either.
+    fp32 = q.dtype == torch.float32
+
     _flash_fwd[grid](
         q, k, v, o,
         *q.stride(), *k.stride(), *v.stride(), *o.stride(),
         Z, H, M, Nkv,
         1.0 / math.sqrt(D),
         BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, BLOCK_D=BLOCK_D, CAUSAL=causal,
-        num_warps=4, num_stages=2,
+        PREC="ieee" if fp32 else "tf32",
+        num_warps=4, num_stages=1 if fp32 else 2,
     )
     return o
 
