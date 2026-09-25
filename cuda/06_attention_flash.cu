@@ -102,6 +102,17 @@ __inline__ __device__ float warpReduceSum(float v) {
 // Both reducers BROADCAST the result back to every thread, because every thread
 // needs m_new and corr to rebase its own accumulator. A reduce-to-thread-0 form
 // would need a third barrier to publish it.
+//
+// The broadcast goes through scratch[32], NOT scratch[0]. The kernel calls Max
+// then Sum back to back with no barrier between them, so with a shared slot a
+// fast warp 0 could write its partial sum into scratch[0] before a slow warp had
+// read the max out of it -- that warp then rebases with the wrong m_new. Found
+// on an RTX 4070 Laptop GPU: nondeterministic errors up to 0.28 at N=512. The
+// CPU emulator runs threads in order and cannot see it. With a separate slot,
+// scratch[32] is written only between a reduce's two barriers and read only
+// after the second; the next write needs every thread past the next reduce's
+// first barrier, i.e. after its read. No extra barrier needed.
+#define BCAST 32
 #ifndef CPU_EMU
 __inline__ __device__ float blockReduceMax(float v, float* scratch) {
     int lane = threadIdx.x % warpSize;
@@ -112,9 +123,9 @@ __inline__ __device__ float blockReduceMax(float v, float* scratch) {
     int nwarps = (blockDim.x + warpSize - 1) / warpSize;
     v = (threadIdx.x < nwarps) ? scratch[threadIdx.x] : -INFINITY;
     if (warp == 0) v = warpReduceMax(v);
-    if (threadIdx.x == 0) scratch[0] = v;
+    if (threadIdx.x == 0) scratch[BCAST] = v;
     __syncthreads();
-    return scratch[0];
+    return scratch[BCAST];
 }
 __inline__ __device__ float blockReduceSum(float v, float* scratch) {
     int lane = threadIdx.x % warpSize;
@@ -125,9 +136,9 @@ __inline__ __device__ float blockReduceSum(float v, float* scratch) {
     int nwarps = (blockDim.x + warpSize - 1) / warpSize;
     v = (threadIdx.x < nwarps) ? scratch[threadIdx.x] : 0.0f;
     if (warp == 0) v = warpReduceSum(v);
-    if (threadIdx.x == 0) scratch[0] = v;
+    if (threadIdx.x == 0) scratch[BCAST] = v;
     __syncthreads();
-    return scratch[0];
+    return scratch[BCAST];
 }
 
 #endif  // !CPU_EMU
@@ -146,7 +157,7 @@ __global__ void attention_flash(const float* __restrict__ Q,
     extern __shared__ float smem[];
     float* sQ       = smem;              // D floats  -- the query row, reused
     float* sS       = sQ + D;            // BC floats -- this tile's scores
-    float* scratch  = sS + BC;           // 32 floats -- reduction scratch
+    float* scratch  = sS + BC;           // 33 floats -- 32 warp partials + broadcast
 
     const int i   = blockIdx.x;          // THIS BLOCK OWNS QUERY ROW i
     const int tid = threadIdx.x;
@@ -300,7 +311,7 @@ Result run_case(int N, int D, int DV, int causal, bool check, int iters,
     CUDA_CHECK(cudaMemcpy(dK, Kp, szQ*sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(dV, Vp, szV*sizeof(float), cudaMemcpyHostToDevice));
 
-    size_t shmem = (D + BC + 32) * sizeof(float);
+    size_t shmem = (D + BC + 33) * sizeof(float);
 
     // warm-up: the first launch pays JIT / context / cache-cold costs that have
     // nothing to do with the kernel. Timing it is the most common way to

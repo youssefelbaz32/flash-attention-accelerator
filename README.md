@@ -66,7 +66,7 @@ while the online path needs 66 words, and that number does not grow with N.
 | M6 | Host to FPGA comms (UART, packet FSM, AXIS) | needs board | |
 | M7 | FPGA bring-up on Vivado | needs board | |
 | M8 | FlashAttention-lite, RTL | done | its own integer spec, exact at every BLK |
-| M8 | FlashAttention-lite, CUDA and Triton | code done, timings pending GPU | float64 CPU reference |
+| M8 | FlashAttention-lite, CUDA and Triton | done, timed on an RTX 4070 Laptop GPU | float64 CPU reference, SDPA |
 
 M8 is one milestone with two implementations. M6 and M7 are the bring-up path
 and both need hardware I do not have in front of me yet.
@@ -167,6 +167,42 @@ harness would not link. It has to be backed by a real array. Small, but it is th
 kind of thing that makes people give up on emulating a kernel and go back to
 waiting for the GPU.
 
+**A shared-memory race the CPU emulator could not see.** The M8 CUDA kernel
+passed every emulated test. On the first real GPU run it failed about half the
+N=512 cases, with errors up to 0.28 that changed from run to run. Both block
+reducers broadcast their result through `scratch[0]`. The kernel calls
+`blockReduceMax` and then `blockReduceSum` with no barrier between them, so a
+fast warp 0 could write its partial sum into `scratch[0]` before a slow warp had
+read the max out of it. That warp then rebased its accumulator with the wrong
+`m_new`. The emulated reducers happened to have a barrier after the read and the
+GPU ones did not. Threads also run one at a time on the CPU, so the emulator
+could never have seen it. `compute-sanitizer --tool racecheck` reports 21
+hazards before the fix and 0 after. The fix broadcasts through a separate slot,
+`scratch[32]`, which is only written between a reduce's two barriers and only
+read after the second one, so it costs no extra barrier. Nondeterministic error
+is the fingerprint of a race, and the emulation boundary was exactly where it
+lived.
+
+**The fp32 check was testing TF32.** The Triton fp32 correctness cases failed at
+about 2e-3 against a 2e-4 tolerance. On fp32 inputs `tl.dot` defaults to TF32,
+which keeps about 10 mantissa bits, so the kernel was fine and the test was
+measuring the wrong precision. Passing `input_precision="ieee"` for fp32 brings
+the error down to about 1e-6.
+
+**A tile that fits one GPU and not another.** fp32 at D=128 died with
+`OutOfResources: shared memory, Required: 115712, Hardware limit: 101376`. With
+64x64 tiles and two pipeline stages, fp32 needs 113 KB, and an sm_89 block gets
+99 KB. Cards with larger shared memory, like the A100, hide this. fp32 now uses
+one stage. fp16, the benchmarked path, is unchanged.
+
+**The baseline was not the kernel I thought it was.** I wrote that SDPA
+dispatches to FlashAttention-2 and cuDNN. On the Windows PyTorch build neither
+is compiled in, and SDPA quietly falls back to the memory-efficient kernel. The
+only hint is a one-line `UserWarning`. Triton reading 100-123% of SDPA looked
+like a result until I forced each backend in turn and found FLASH_ATTENTION and
+CUDNN_ATTENTION both unavailable. Always check which kernel the baseline actually
+runs.
+
 **Two numerics decisions came out backwards on seed 0.** I nearly shipped both.
 Truncating division looked better than round-to-nearest, and online softmax
 looked twice as accurate as naive. A 200-seed sweep reversed both. Round-to-
@@ -180,7 +216,8 @@ rather than an accuracy win. Sixteen output values is not a distribution.
 | M2 Python Q8.8 | `np.exp` plus float divide | 0.0063 | 0.0021 |
 | M5 RTL naive | 256-entry exp LUT plus restoring divider | 0.0133 | 0.0050 |
 | M8 RTL online | same LUT, one reciprocal per row | 0.0065 | 0.0032 |
-| M3, M4, M8 CUDA | float32 `expf` | 1.19e-07 | |
+| M3, M4 CUDA | float32 `expf` | 1.19e-07 | |
+| M8 CUDA | float32 `__expf`, online rebase | 1.77e-07 | |
 
 The RTL numbers above are seed 0. Across 200 seeds the naive and online paths
 are much closer, mean 0.00407 against 0.00369 at BLK=4 and a dead heat at
@@ -224,6 +261,59 @@ This catches loop bounds, tile arithmetic, the online recurrence and barrier
 placement. A missing `__syncthreads()` deadlocks here loudly instead of
 producing plausible garbage on hardware. It proves nothing about coalescing,
 occupancy, real races or performance.
+
+That last caveat bit on the first real GPU run. See the shared-memory race
+under [Bugs worth remembering](#bugs-worth-remembering).
+
+## M8 on a GPU
+
+NVIDIA GeForce RTX 4070 Laptop GPU (sm_89, 36 SMs, 8 GB), driver 581.57, CUDA
+13.4, torch 2.4.0+cu124, triton-windows 3.1.0, native Windows.
+
+**What SDPA means here.** This Windows PyTorch build has no FlashAttention-2 or
+cuDNN attention compiled in. SDPA runs the memory-efficient (xFormers/CUTLASS)
+kernel, so percent of SDPA is percent of that. On a Linux build with
+FlashAttention-2 the Triton numbers would be lower.
+
+**Triton**, fp16, batch 1, 16 heads, `triton.testing.do_bench` median. All 16
+correctness cases pass, in fp16 and fp32.
+
+| N | D | causal | Triton ms | SDPA ms | % of SDPA | TFLOP/s |
+|---|---|---|---|---|---|---|
+| 512 | 64 | no | 0.058 | 0.055 | 95% | 18.6 |
+| 512 | 128 | no | 0.134 | 0.110 | 82% | 16.0 |
+| 2048 | 64 | no | 0.493 | 0.595 | 121% | 34.8 |
+| 2048 | 128 | no | 1.533 | 1.423 | 93% | 22.4 |
+| 4096 | 64 | no | 2.019 | 2.491 | 123% | 34.0 |
+| 4096 | 64 | yes | 1.080 | 1.320 | 122% | 31.8 |
+| 4096 | 128 | no | 5.855 | 5.862 | 100% | 23.5 |
+| 4096 | 128 | yes | 3.190 | 3.095 | 97% | 21.5 |
+
+Unlike the CUDA kernel, the Triton kernel does use tensor cores: `tl.dot` on
+fp16 tiles lowers to MMA. That is most of the gap between the two tables.
+
+**CUDA**, fp32, one head, one thread block per query row, mean of 20 launches.
+SDPA is timed at the same shape and dtype. All 24 sweep cases pass. Every
+N<=512 case is checked against float64, worst error 1.4e-06.
+
+| N | D | causal | CUDA ms | SDPA ms | % of SDPA | GFLOP/s |
+|---|---|---|---|---|---|---|
+| 512 | 64 | no | 0.246 | 0.089 | 36% | 214 |
+| 2048 | 64 | no | 3.69 | 0.357 | 9.7% | 239 |
+| 4096 | 64 | no | 14.5 | 1.00 | 6.9% | 296 |
+| 4096 | 128 | no | 28.3 | 1.69 | 6.0% | 303 |
+| 4096 | 128 | yes | 14.3 | 1.15 | 8.0% | 300 |
+
+At N=128 the CUDA kernel reads 120-150% of SDPA. That is launch overhead
+dominating both sides, not a real win. It plateaus near 300 GFLOP/s because
+each block owns one query row and re-streams all of K and V from L2. There is
+no query tiling and no tensor cores, so the next step is to give each block a
+tile of query rows.
+
+**Nsight Compute: not run.** `ncu` stops with `ERR_NVGPUCTRPERM`, because
+Windows limits GPU performance counters to administrators by default. It needs
+NVIDIA Control Panel > Developer > Manage GPU Performance Counters set to all
+users, or an elevated shell.
 
 ## Layout
 
@@ -272,8 +362,6 @@ knob), `RECIP_SH` (reciprocal precision), and the LUT geometry `EXP_N` and
   are prefilling or decoding. It is not a law.
 - Tiling loads each input once only in the single-block toy case. At real sizes
   tiles reload across thread blocks.
-- M8 has no measured GPU numbers yet. The kernel is verified, not timed. The
-  Triton file benchmarks against `F.scaled_dot_product_attention`, which
-  dispatches to real FlashAttention-2 and cuDNN kernels. Beating that is not the
-  goal and this kernel uses no tensor cores; percent of SDPA is the number I
-  will report.
+- The M8 GPU numbers come from one laptop GPU on native Windows, where SDPA
+  falls back to the memory-efficient kernel. Triton at or above 100% of SDPA
+  here does not mean it beats FlashAttention-2. See [M8 on a GPU](#m8-on-a-gpu).
