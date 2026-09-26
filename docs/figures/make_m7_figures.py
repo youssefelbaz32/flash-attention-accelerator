@@ -54,6 +54,52 @@ def fmax():
         "Critical-path logic levels grow from 25 to 50.", b), encoding="utf-8")
 
 
+# After pipelining (2026-09-26), serial fold, 150 MHz target: BLK -> fmax.
+# BLK 2 and 8 are from the build before the MAXR stage; 4 and 16 after it.
+AFTER = [(2, 155.6), (4, 149.8), (8, 155.0), (16, 154.5)]
+# Parallel fold (FOLD_PAR=1): BLK -> fmax, compute cycles at N=16.
+PAR = [(4, 155.7, 2528), (8, 156.6, 1856), (16, 150.5, 1520)]
+
+
+def closure():
+    W, H = 1120, 470
+    x0, x1, y0, y1 = 190, 960, 390, 100
+    fmin, fmax_ = 50.0, 175.0
+    order = [2, 4, 8, 16]
+    xs = {blk: x0 + (x1 - x0) * k / 3 for k, blk in enumerate(order)}
+
+    def y(f):
+        return y0 - (f - fmin) / (fmax_ - fmin) * (y0 - y1)
+
+    b = [
+        '  <text class="t" x="32" y="42">Timing closure: fmax against BLK, before and after pipelining</text>',
+        '  <text class="s" x="32" y="62">Attention accelerator, N = D = 16, xczu1cg, Vivado 2024.1. '
+        'Before: first build. After: max tree, registered scores, pipelined output scaling.</text>',
+    ]
+    for f in (50, 75, 100, 125, 150, 175):
+        b.append(f'  <line class="grid" x1="{x0}" y1="{y(f):.1f}" x2="{x1}" y2="{y(f):.1f}"/>')
+        b.append(f'  <text class="m" x="{x0-12}" y="{y(f)+4:.1f}" text-anchor="end">{f} MHz</text>')
+    b.append(f'  <line x1="{x0}" y1="{y(150):.1f}" x2="{x1+60}" y2="{y(150):.1f}" '
+             f'stroke="{AMBER}" stroke-width="1.5" stroke-dasharray="6 5"/>')
+    b.append(f'  <text class="a" x="{x0+8}" y="{y(150)+18:.1f}" fill="{AMBER}">150 MHz target</text>')
+    for series, col, lab, dy in ((SWEEP, GRAY, "before", 22), (AFTER, BLUE, "after", -14)):
+        pts = " ".join(f"{xs[r[0]]:.1f},{y(r[1]):.1f}" for r in series)
+        b.append(f'  <polyline points="{pts}" fill="none" stroke="{col}" stroke-width="2.5"/>')
+        for r in series:
+            b.append(f'  <circle cx="{xs[r[0]]:.1f}" cy="{y(r[1]):.1f}" r="6" fill="{col}" stroke="#dce4ee" stroke-width="1"/>')
+            b.append(f'  <text class="l" x="{xs[r[0]]:.1f}" y="{y(r[1])+dy:.1f}" text-anchor="middle">{r[1]:.0f}</text>')
+        last = series[-1]
+        b.append(f'  <text class="a" x="{xs[last[0]]+14:.1f}" y="{y(last[1])+4:.1f}" fill="{col}">{lab}</text>')
+    for blk in order:
+        b.append(f'  <text class="m" x="{xs[blk]:.1f}" y="{y0+24}" text-anchor="middle">BLK = {blk}</text>')
+    b.append(f'  <line class="axis" x1="{x0}" y1="{y0}" x2="{x1}" y2="{y0}"/>')
+    (OUT / "m7_closure.svg").write_text(svg(W, H,
+        "Line chart of fmax against BLK at N=D=16. Before pipelining: 111, 102, 96 and 65 MHz "
+        "at BLK 2, 4, 8 and 16. After: 156, 150, 155 and 155 MHz, all at or above the 150 MHz target.",
+        b), encoding="utf-8")
+
+
 if __name__ == "__main__":
     fmax()
-    print("wrote", OUT / "m7_fmax.svg")
+    closure()
+    print("wrote", OUT / "m7_fmax.svg", "and", OUT / "m7_closure.svg")

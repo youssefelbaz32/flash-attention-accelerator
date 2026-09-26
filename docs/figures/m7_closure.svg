@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 470" role="img" aria-label="Line chart of fmax against BLK at N=D=16. Before pipelining: 111, 102, 96 and 65 MHz at BLK 2, 4, 8 and 16. After: 156, 150, 155 and 155 MHz, all at or above the 150 MHz target.">
+  <style>
+    .t{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;font-weight:600;fill:#dce4ee}
+    .s{font-family:system-ui,sans-serif;font-size:11px;fill:#8493a4}
+    .a{font-family:system-ui,sans-serif;font-size:12px;fill:#8493a4}
+    .l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;fill:#dce4ee}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:#8493a4}
+    .bg{fill:#141b24;stroke:#33404f;stroke-width:1.5}
+    .grid{stroke:#26313d;stroke-width:1}
+    .axis{stroke:#33404f;stroke-width:1}
+  </style>
+  <rect class="bg" x="4" y="4" width="1112" height="462" rx="12"/>
+  <text class="t" x="32" y="42">Timing closure: fmax against BLK, before and after pipelining</text>
+  <text class="s" x="32" y="62">Attention accelerator, N = D = 16, xczu1cg, Vivado 2024.1. Before: first build. After: max tree, registered scores, pipelined output scaling.</text>
+  <line class="grid" x1="190" y1="390.0" x2="960" y2="390.0"/>
+  <text class="m" x="178" y="394.0" text-anchor="end">50 MHz</text>
+  <line class="grid" x1="190" y1="332.0" x2="960" y2="332.0"/>
+  <text class="m" x="178" y="336.0" text-anchor="end">75 MHz</text>
+  <line class="grid" x1="190" y1="274.0" x2="960" y2="274.0"/>
+  <text class="m" x="178" y="278.0" text-anchor="end">100 MHz</text>
+  <line class="grid" x1="190" y1="216.0" x2="960" y2="216.0"/>
+  <text class="m" x="178" y="220.0" text-anchor="end">125 MHz</text>
+  <line class="grid" x1="190" y1="158.0" x2="960" y2="158.0"/>
+  <text class="m" x="178" y="162.0" text-anchor="end">150 MHz</text>
+  <line class="grid" x1="190" y1="100.0" x2="960" y2="100.0"/>
+  <text class="m" x="178" y="104.0" text-anchor="end">175 MHz</text>
+  <line x1="190" y1="158.0" x2="1020" y2="158.0" stroke="#d97706" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text class="a" x="198" y="176.0" fill="#d97706">150 MHz target</text>
+  <polyline points="190.0,247.6 446.7,269.8 703.3,284.4 960.0,355.2" fill="none" stroke="#8493a4" stroke-width="2.5"/>
+  <circle cx="190.0" cy="247.6" r="6" fill="#8493a4" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="190.0" y="269.6" text-anchor="middle">111</text>
+  <circle cx="446.7" cy="269.8" r="6" fill="#8493a4" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="446.7" y="291.8" text-anchor="middle">102</text>
+  <circle cx="703.3" cy="284.4" r="6" fill="#8493a4" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="703.3" y="306.4" text-anchor="middle">96</text>
+  <circle cx="960.0" cy="355.2" r="6" fill="#8493a4" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="960.0" y="377.2" text-anchor="middle">65</text>
+  <text class="a" x="974.0" y="359.2" fill="#8493a4">before</text>
+  <polyline points="190.0,145.0 446.7,158.5 703.3,146.4 960.0,147.6" fill="none" stroke="#3987e5" stroke-width="2.5"/>
+  <circle cx="190.0" cy="145.0" r="6" fill="#3987e5" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="190.0" y="131.0" text-anchor="middle">156</text>
+  <circle cx="446.7" cy="158.5" r="6" fill="#3987e5" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="446.7" y="144.5" text-anchor="middle">150</text>
+  <circle cx="703.3" cy="146.4" r="6" fill="#3987e5" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="703.3" y="132.4" text-anchor="middle">155</text>
+  <circle cx="960.0" cy="147.6" r="6" fill="#3987e5" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="960.0" y="133.6" text-anchor="middle">154</text>
+  <text class="a" x="974.0" y="151.6" fill="#3987e5">after</text>
+  <text class="m" x="190.0" y="414" text-anchor="middle">BLK = 2</text>
+  <text class="m" x="446.7" y="414" text-anchor="middle">BLK = 4</text>
+  <text class="m" x="703.3" y="414" text-anchor="middle">BLK = 8</text>
+  <text class="m" x="960.0" y="414" text-anchor="middle">BLK = 16</text>
+  <line class="axis" x1="190" y1="390" x2="960" y2="390"/>
+</svg>
