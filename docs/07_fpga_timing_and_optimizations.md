@@ -18,8 +18,19 @@ interconnect has come close to critical.
 | 2026-09-25 | N16 D16 BLK4 | 100 MHz | +0.180 | 102 MHz | 24 | `gen_lane[1].u_dot/acc_reg` -> `l_rebased0` |
 | 2026-09-25 | N16 D16 BLK8 | 100 MHz | -0.470 | 96 MHz | 36 | `gen_lane[1].u_dot/acc_reg` -> `l_run_reg[16]` |
 | 2026-09-25 | N16 D16 BLK16 | 100 MHz | -5.377 | 65 MHz | 50 | `gen_lane[0].u_dot/acc_reg` -> `l_run_reg[18]` |
+| 2026-09-26 | N16 D16 BLK2, T2+T3 | 150 MHz | -1.463 | 122 MHz | 21 | `c_cnt_reg` -> `o_mem_reg` (output scaling multiply) |
+| 2026-09-26 | N16 D16 BLK4, T2+T3 | 150 MHz | -1.375 | 123 MHz | 22 | `c_cnt_reg` -> `o_mem_reg` |
+| 2026-09-26 | N16 D16 BLK16, T2+T3 | 150 MHz | -1.025 | 129 MHz | 21 | `acc_reg` -> `o_mem_reg` |
 
-fmax = 1000 / (period - WNS). About 55% of every path is routing.
+fmax = 1000 / (period - WNS). About 55% of every path is routing. The BLK=8
+build of the T2+T3 sweep failed inside Vivado (a Tcl interpreter error while
+generating the PS IP), not in the design, and was rerun with the next batch.
+
+After T2+T3 the lane max is gone from the top of the report. BLK=16 went from
+65 to 129 MHz, and fmax no longer falls with BLK. The new critical path is
+the output scaling in SCALE_OUT: `acc[c_cnt]` through the 37 x 25-bit
+reciprocal multiply (a two-DSP cascade), rounding, saturation and the write
+into `o_mem`, all in one cycle.
 
 ### What the critical path is
 
@@ -45,22 +56,23 @@ Status: **idea**, **trying**, **done** (with the build that proved it), **droppe
 
 | # | idea | expected effect | status |
 |---|---|---|---|
-| T1 | Register `d4_s` before the max (one extra SCORE_WAIT cycle per block) | takes the DSP clock-to-out and first routing hop off the path | idea |
-| T2 | Replace the linear max with a balanced tree | depth from BLK compares to log2(BLK); should flatten fmax across BLK | idea |
-| T3 | Pipeline the max: register `m_new_c`, compute `exp(m_run - m_new)` next cycle | splits the cone in two; probably the single biggest fmax win | idea |
+| T1 | Register `d4_s` before the max (one extra SCORE_WAIT cycle per block) | takes the DSP clock-to-out and first routing hop off the path | dropped: after T2+T3 the max is no longer near the top of the report |
+| T2 | Replace the linear max with a balanced tree | depth from BLK compares to log2(BLK); should flatten fmax across BLK | done (2026-09-26, with T3: BLK16 65 -> 129 MHz, fmax now flat in BLK) |
+| T3 | Pipeline the max: register `m_new_c`, compute `exp(m_run - m_new)` next cycle | splits the cone in two; probably the single biggest fmax win | done (2026-09-26, new CORR state, +1 cycle per block, bit-exact) |
 | T4 | Make the exp ROM synchronous (registered output, can sit in BRAM) | removes the ROM from the combinational path; costs a cycle in EXPF | idea |
 | T5 | Use the DSP's internal pipeline registers (MREG/PREG) in `dot4` and the rebase multiplies | frees fabric levels, DSPs are nearly free here (22 of 216 at BLK16) | idea |
 | T6 | Default PL clock 150 -> 100 MHz | makes BLK <= 4 timing-clean | done (2026-09-25, all N16 BLK<=4 builds) |
-| T7 | Re-target 150 MHz once T2 + T3 are in | the goal the scripts were first written for | idea |
+| T7 | Re-target 150 MHz once T2 + T3 are in | the goal the scripts were first written for | trying |
+| T8 | Pipeline the output scaling (operand, product, round/saturate/write) | the critical path after T2+T3; writes land 2 cycles late, which costs no cycles | trying (bit-exact in sim, zero added cycles) |
 
 ### Cycles (throughput)
 
 | # | idea | expected effect | status |
 |---|---|---|---|
-| C1 | Parallelise FOLD: DV MACs instead of one, so a block folds in BLK cycles, not BLK*DV | FOLD is BLK*DV cycles per block, i.e. N*DV per row whatever BLK is. BLK currently only speeds up the dot products, so it cannot pay off until this is done | idea |
-| C2 | Parallelise REBASE the same way (DV multiplies in one cycle) | saves DV-1 cycles per block | idea |
+| C1 | Parallelise FOLD: DV MACs instead of one, so a block folds in BLK cycles, not BLK*DV | FOLD is BLK*DV cycles per block, i.e. N*DV per row whatever BLK is. BLK currently only speeds up the dot products, so it cannot pay off until this is done | done in sim (2026-09-26, `FOLD_PAR=1`; N16 compute 7,264 -> 2,464 cy at BLK4, 5,584 -> 1,504 at BLK16, bit-exact); build pending |
+| C2 | Parallelise REBASE the same way (DV multiplies in one cycle) | saves DV-1 cycles per block | done, part of `FOLD_PAR=1` |
 | C3 | Overlap the next block's dot products with this block's EXPF/FOLD | hides the dot4 latency | idea |
-| C4 | Pack two 16-bit elements per 32-bit stream beat | halves load and store beats; matters when the DMA is the limit (`CYC_LOAD_STALL`) | idea |
+| C4 | Pack two 16-bit elements per 32-bit stream beat | halves load and store beats; matters when the DMA is the limit (`CYC_LOAD_STALL`) | idea. With `FOLD_PAR=1` at N16 BLK16, load (1,147 cy) is now 38% of the run, so this is the next cycle win |
 
 ### Area
 
