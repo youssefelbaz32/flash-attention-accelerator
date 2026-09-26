@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 460" role="img" aria-label="Line chart of fmax against BLK for N=D=16 on the ZUBoard: 111 MHz at BLK 2, 102 at BLK 4, 96 at BLK 8 and 65 at BLK 16, against a 100 MHz target. Critical-path logic levels grow from 25 to 50.">
+  <style>
+    .t{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;font-weight:600;fill:#dce4ee}
+    .s{font-family:system-ui,sans-serif;font-size:11px;fill:#8493a4}
+    .a{font-family:system-ui,sans-serif;font-size:12px;fill:#8493a4}
+    .l{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;fill:#dce4ee}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;fill:#8493a4}
+    .bg{fill:#141b24;stroke:#33404f;stroke-width:1.5}
+    .grid{stroke:#26313d;stroke-width:1}
+    .axis{stroke:#33404f;stroke-width:1}
+  </style>
+  <rect class="bg" x="4" y="4" width="1112" height="452" rx="12"/>
+  <text class="t" x="32" y="42">More lanes, lower clock: fmax against BLK on the ZUBoard</text>
+  <text class="s" x="32" y="62">Attention accelerator, N = D = 16, xczu1cg, Vivado 2024.1. fmax from worst-path slack at a 100 MHz target. Labels give logic levels on the critical path.</text>
+  <line class="grid" x1="190" y1="380.0" x2="960" y2="380.0"/>
+  <text class="m" x="178" y="384.0" text-anchor="end">50 MHz</text>
+  <line class="grid" x1="190" y1="286.7" x2="960" y2="286.7"/>
+  <text class="m" x="178" y="290.7" text-anchor="end">75 MHz</text>
+  <line class="grid" x1="190" y1="193.3" x2="960" y2="193.3"/>
+  <text class="m" x="178" y="197.3" text-anchor="end">100 MHz</text>
+  <line class="grid" x1="190" y1="100.0" x2="960" y2="100.0"/>
+  <text class="m" x="178" y="104.0" text-anchor="end">125 MHz</text>
+  <line x1="190" y1="193.3" x2="1020" y2="193.3" stroke="#d97706" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text class="a" x="1020" y="185.3" text-anchor="end" fill="#d97706">100 MHz PL clock</text>
+  <polyline points="190.0,150.8 446.7,186.6 703.3,210.1 960.0,324.0" fill="none" stroke="#3987e5" stroke-width="2.5"/>
+  <circle cx="190.0" cy="150.8" r="6" fill="#3987e5" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="190.0" y="134.8" text-anchor="middle">111 MHz, 25 levels</text>
+  <text class="m" x="190.0" y="404" text-anchor="middle">BLK = 2</text>
+  <text class="s" x="190.0" y="420" text-anchor="middle">11,159 LUTs</text>
+  <circle cx="446.7" cy="186.6" r="6" fill="#3987e5" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="446.7" y="170.6" text-anchor="middle">102 MHz, 24 levels</text>
+  <text class="m" x="446.7" y="404" text-anchor="middle">BLK = 4</text>
+  <text class="s" x="446.7" y="420" text-anchor="middle">11,735 LUTs</text>
+  <circle cx="703.3" cy="210.1" r="6" fill="#8493a4" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="703.3" y="236.1" text-anchor="middle">96 MHz, 36 levels</text>
+  <text class="m" x="703.3" y="404" text-anchor="middle">BLK = 8</text>
+  <text class="s" x="703.3" y="420" text-anchor="middle">12,771 LUTs, misses timing</text>
+  <circle cx="960.0" cy="324.0" r="6" fill="#8493a4" stroke="#dce4ee" stroke-width="1"/>
+  <text class="l" x="960.0" y="350.0" text-anchor="middle">65 MHz, 50 levels</text>
+  <text class="m" x="960.0" y="404" text-anchor="middle">BLK = 16</text>
+  <text class="s" x="960.0" y="420" text-anchor="middle">13,642 LUTs, misses timing</text>
+  <line class="axis" x1="190" y1="380" x2="960" y2="380"/>
+</svg>
