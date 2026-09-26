@@ -16,15 +16,15 @@ mkdir -p fpga/build
 
 "$VIVADO" -mode batch -nojournal -nolog -source fpga/package_ip.tcl
 
-# BLK must divide N. 216 DSPs on this part means BLK can go much higher than the
-# 1/2/4 that simulation swept; the point of going to 16 is to find where fmax
-# starts to fall off, which is the knee of the curve.
-for cfg in "2 16 16 16" "4 16 16 16" "8 16 16 16" "16 16 16 16"; do
+# BLK must divide N. Fields: BLK N D DV MHz FOLD_PAR. Serial fold at two lane
+# counts, then the parallel fold, where more lanes actually buy cycles.
+for cfg in "4 16 16 16 150 0" "16 16 16 16 150 0" \
+           "4 16 16 16 150 1" "8 16 16 16 150 1" "16 16 16 16 150 1"; do
   set -- $cfg
-  echo "=== BLK=$1 N=$2 D=$3 DV=$4 ==="
+  echo "=== BLK=$1 N=$2 D=$3 DV=$4 ${5}MHz FOLD_PAR=$6 ==="
   # -nojournal/-nolog go BEFORE -tclargs, or they become tclargs.
   "$VIVADO" -mode batch -nojournal -nolog -source fpga/build_bd.tcl -tclargs "$@" \
-    | tee "fpga/build/log_N$2_BLK$1.txt" | grep -E "^  (clock|WNS|fmax|bitstream|xsa)" || true
+    | tee "fpga/build/log_N$2_BLK$1_FP$6.txt" | grep -E "^  (clock|WNS|fmax|bitstream|xsa)" || true
 done
 
 echo

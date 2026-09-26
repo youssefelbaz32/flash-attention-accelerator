@@ -5,10 +5,9 @@
 #   vivado -mode batch -source fpga/build_bd.tcl -tclargs 8 16 16 16 100 1
 #                                                          ^BLK ^N ^D ^DV ^MHz ^FOLD_PAR
 #
-# The PL clock defaults to 100 MHz. The first build (N=4 D=4 BLK=2) closed at
-# about 130 MHz: the critical path runs from one lane's dot-product DSP through
-# the cross-lane max and into the online-softmax rebase, 23 logic levels. 150 MHz
-# fails timing, and a bitstream that fails timing is not one to debug on a board.
+# The PL clock defaults to 150 MHz (148.1 MHz in practice). Every N=16 build
+# meets it since the lane max and the output scaling were pipelined; before
+# that the design closed at 65 to 111 MHz. See docs/07_fpga_timing_and_optimizations.md.
 #
 # Run fpga/package_ip.tcl first. Run both from the project root.
 #
@@ -25,7 +24,7 @@ set BLK [expr {$argc > 0 ? [lindex $argv 0] : 2}]
 set N   [expr {$argc > 1 ? [lindex $argv 1] : 4}]
 set D   [expr {$argc > 2 ? [lindex $argv 2] : 4}]
 set DV  [expr {$argc > 3 ? [lindex $argv 3] : 4}]
-set FCLK [expr {$argc > 4 ? [lindex $argv 4] : 100}]
+set FCLK [expr {$argc > 4 ? [lindex $argv 4] : 150}]
 # FOLD_PAR=1 gives REBASE and FOLD one multiplier per output column: DV more
 # DSPs for about 3x fewer compute cycles at N=16. Tagged _FP so both coexist.
 set FPAR [expr {$argc > 5 ? [lindex $argv 5] : 0}]
