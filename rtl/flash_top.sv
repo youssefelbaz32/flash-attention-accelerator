@@ -126,7 +126,7 @@ module flash_top #(
   logic [BW-1:0] b_cnt;
 
   typedef enum logic [3:0] {
-    IDLE, LOAD, SCORE_ISSUE, SCORE_WAIT, REBASE, EXPF, FOLD,
+    IDLE, LOAD, SCORE_ISSUE, SCORE_WAIT, CORR, REBASE, EXPF, FOLD,
     RECIP_LOAD, RECIP_ITER, SCALE_OUT, DRAIN
   } state_t;
   state_t curr_state, next_state;
@@ -151,22 +151,32 @@ module flash_top #(
     end
   endgenerate
 
-  // ---- the new max, combinational over the live lane outputs ------------------
-  logic signed [DW-1:0] m_new_c;
+  // ---- the new max, a balanced tree over the live lane outputs ---------------
+  // Written as a loop this was a chain of BLK compares, and it was the FPGA
+  // critical path: 25 logic levels at BLK=2, 50 at BLK=16. As a tree it is
+  // log2(BLK)+1 compares deep. The result is registered (m_new_r) and the
+  // rebase factor exp(m_run - m_new) is looked up a cycle later, in CORR, so
+  // the max and the exp ROM are no longer one combinational path.
+  localparam int BLKP = 1 << $clog2(BLK > 1 ? BLK : 2);   // lanes padded to 2^k
+  logic signed [DW-1:0] mx [2*BLKP];                       // heap-ordered tree
   always_comb begin
-    m_new_c = m_run;
-    for (int t = 0; t < BLK; t++)
-      if (d4_s[t] > m_new_c) m_new_c = d4_s[t];
+    for (int t = 0; t < BLKP; t++)
+      mx[BLKP + t] = (t < BLK) ? d4_s[t] : NEG_INF;
+    for (int t = BLKP - 1; t >= 1; t--)
+      mx[t] = (mx[2*t] > mx[2*t+1]) ? mx[2*t] : mx[2*t+1];
+    mx[0] = '0;
   end
+  logic signed [DW-1:0] m_new_c;
+  assign m_new_c = (mx[1] > m_run) ? mx[1] : m_run;
 
   // ---- shared exp ROM ---------------------------------------------------------
-  // ONE rom, two users, muxed by state: the rebase factor in SCORE_WAIT, the
+  // ONE rom, two users, muxed by state: the rebase factor in CORR, the
   // score exponentials in EXPF. They never need it on the same cycle.
   logic signed [DW:0] exp_x;
   logic        [DW-1:0] exp_e;
   always_comb begin
-    if (curr_state == SCORE_WAIT)
-      exp_x = $signed({m_run[DW-1], m_run}) - $signed({m_new_c[DW-1], m_new_c});
+    if (curr_state == CORR)
+      exp_x = $signed({m_run[DW-1], m_run}) - $signed({m_new_r[DW-1], m_new_r});
     else
       exp_x = $signed({s_blk[b_cnt][DW-1], s_blk[b_cnt]})
             - $signed({m_new_r[DW-1], m_new_r});
@@ -238,7 +248,8 @@ module flash_top #(
       IDLE:        if (s_valid) next_state = LOAD;
       LOAD:        if (s_valid && s_ready && ld_last) next_state = SCORE_ISSUE;
       SCORE_ISSUE: if (d4_all_in_ready)  next_state = SCORE_WAIT;
-      SCORE_WAIT:  if (d4_all_out_valid) next_state = REBASE;
+      SCORE_WAIT:  if (d4_all_out_valid) next_state = CORR;
+      CORR:        next_state = REBASE;
       REBASE:      if (last_c) next_state = EXPF;      // DV cycles
       EXPF:        if (last_b) next_state = FOLD;      // BLK cycles
       FOLD:        if (last_b && last_c) begin         // BLK*DV cycles
@@ -300,6 +311,9 @@ module flash_top #(
         SCORE_WAIT: if (d4_all_out_valid) begin
           for (int t = 0; t < BLK; t++) s_blk[t] <= d4_s[t];
           m_new_r <= m_new_c;
+        end
+
+        CORR: begin
           corr_r  <= exp_e;                      // exp(m_run - m_new), Q(FRAC)
           c_cnt   <= '0;
         end
