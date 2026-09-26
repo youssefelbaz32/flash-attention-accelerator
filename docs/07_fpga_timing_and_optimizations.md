@@ -21,6 +21,12 @@ interconnect has come close to critical.
 | 2026-09-26 | N16 D16 BLK2, T2+T3 | 150 MHz | -1.463 | 122 MHz | 21 | `c_cnt_reg` -> `o_mem_reg` (output scaling multiply) |
 | 2026-09-26 | N16 D16 BLK4, T2+T3 | 150 MHz | -1.375 | 123 MHz | 22 | `c_cnt_reg` -> `o_mem_reg` |
 | 2026-09-26 | N16 D16 BLK16, T2+T3 | 150 MHz | -1.025 | 129 MHz | 21 | `acc_reg` -> `o_mem_reg` |
+| 2026-09-26 | N16 D16 BLK2, +T8 | 150 MHz | +0.325 | 156 MHz | 13 | `c_cnt_reg` -> `acc_reg` (REBASE multiply) |
+| 2026-09-26 | N16 D16 BLK4, +T8 | 150 MHz | +0.415 | 158 MHz | 15 | `c_cnt_reg` -> `acc_reg` (REBASE multiply) |
+| 2026-09-26 | N16 D16 BLK8, +T8 | 150 MHz | +0.297 | 155 MHz | 17 | `s_blk_reg` -> `l_rebased` (EXPF: score, exp ROM, running sum) |
+| 2026-09-26 | N16 D16 BLK16, +T8 | 150 MHz | -0.278 | 142 MHz | 20 | `gen_lane[15].u_dot/acc_reg` (DSP) -> `m_new_r_reg` (16-way max tree) |
+| 2026-09-26 | N16 D16 BLK4 FOLD_PAR, +T8 | 150 MHz | +0.484 | 160 MHz | 13 | `b_cnt_reg` -> FOLD multiplier input (V row select) |
+| 2026-09-26 | N16 D16 BLK16 FOLD_PAR, +T8 | 150 MHz | -1.254 | 125 MHz | 19 | `gen_lane[14].u_dot/acc_reg` (DSP) -> `m_new_r_reg` |
 
 fmax = 1000 / (period - WNS). About 55% of every path is routing. The BLK=8
 build of the T2+T3 sweep failed inside Vivado (a Tcl interpreter error while
@@ -56,14 +62,15 @@ Status: **idea**, **trying**, **done** (with the build that proved it), **droppe
 
 | # | idea | expected effect | status |
 |---|---|---|---|
-| T1 | Register `d4_s` before the max (one extra SCORE_WAIT cycle per block) | takes the DSP clock-to-out and first routing hop off the path | dropped: after T2+T3 the max is no longer near the top of the report |
+| T1 | Register `d4_s` before the max (one extra SCORE_WAIT cycle per block) | takes the DSP clock-to-out and first routing hop off the path | trying: at BLK=16 the 16-way tree straight off the DSPs is the critical path again after T8 |
 | T2 | Replace the linear max with a balanced tree | depth from BLK compares to log2(BLK); should flatten fmax across BLK | done (2026-09-26, with T3: BLK16 65 -> 129 MHz, fmax now flat in BLK) |
 | T3 | Pipeline the max: register `m_new_c`, compute `exp(m_run - m_new)` next cycle | splits the cone in two; probably the single biggest fmax win | done (2026-09-26, new CORR state, +1 cycle per block, bit-exact) |
 | T4 | Make the exp ROM synchronous (registered output, can sit in BRAM) | removes the ROM from the combinational path; costs a cycle in EXPF | idea |
 | T5 | Use the DSP's internal pipeline registers (MREG/PREG) in `dot4` and the rebase multiplies | frees fabric levels, DSPs are nearly free here (22 of 216 at BLK16) | idea |
 | T6 | Default PL clock 150 -> 100 MHz | makes BLK <= 4 timing-clean | done (2026-09-25, all N16 BLK<=4 builds) |
 | T7 | Re-target 150 MHz once T2 + T3 are in | the goal the scripts were first written for | trying |
-| T8 | Pipeline the output scaling (operand, product, round/saturate/write) | the critical path after T2+T3; writes land 2 cycles late, which costs no cycles | trying (bit-exact in sim, zero added cycles) |
+| T8 | Pipeline the output scaling (operand, product, round/saturate/write) | the critical path after T2+T3; writes land 2 cycles late, which costs no cycles | done (2026-09-26: BLK 2, 4, 8 now meet 150 MHz, zero added cycles) |
+| T9 | Build with `FPGA_WORK` at a short path | the first T8 batch failed on Windows' 260-char path limit and silently reused the old IP | done (2026-09-26) |
 
 ### Cycles (throughput)
 
