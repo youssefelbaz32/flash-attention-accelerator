@@ -72,6 +72,7 @@ foreach {p disp} {
   BLK  "Key block size / MAC lanes (BLK)"
   DW   "Word width (DW)"
   FRAC "Fraction bits (FRAC)"
+  FOLD_PAR "Parallel fold, DV multipliers (FOLD_PAR)"
 } {
   set gp [ipgui::get_guiparamspec -name $p -component $core -quiet]
   if {$gp ne ""} {

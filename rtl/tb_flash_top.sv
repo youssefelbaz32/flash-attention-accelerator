@@ -29,6 +29,11 @@ module tb_flash_top;
 `else
   localparam int BLK = 2;
 `endif
+`ifdef FOLD_PAR_OVERRIDE
+  localparam int FOLD_PAR = `FOLD_PAR_OVERRIDE;
+`else
+  localparam int FOLD_PAR = 0;
+`endif
   localparam int N_IN  = 2*N*D + N*DV;
   localparam int N_OUT = N*DV;
 
@@ -48,7 +53,7 @@ module tb_flash_top;
   int inj_in_stall = 0, inj_out_stall = 0;
 
   flash_top #(.DW(DW), .FRAC(FRAC), .N(N), .D(D), .DV(DV),
-              .BLK(BLK), .RECIP_SH(RECIP_SH)) dut (.*);
+              .BLK(BLK), .RECIP_SH(RECIP_SH), .FOLD_PAR(FOLD_PAR)) dut (.*);
 
   always @(posedge clk) if (rst_n) begin
     if (busy) cy_busy++;

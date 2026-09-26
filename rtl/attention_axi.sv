@@ -29,6 +29,7 @@ module attention_axi #(
   parameter int DV       = 4,
   parameter int BLK      = 2,
   parameter int RECIP_SH = 24,
+  parameter int FOLD_PAR = 0,               // 1: DV multipliers in REBASE/FOLD
   parameter     EXP_FILE = "exp_lut.hex",   // relative to the IP's source dir
   parameter int C_S_AXI_LITE_ADDR_WIDTH = 8,
   parameter int C_S_AXI_LITE_DATA_WIDTH = 32
@@ -123,7 +124,7 @@ module attention_axi #(
 
   flash_top #(
     .DW(DW), .FRAC(FRAC), .N(N), .D(D), .DV(DV),
-    .BLK(BLK), .RECIP_SH(RECIP_SH), .EXP_FILE(EXP_FILE)
+    .BLK(BLK), .RECIP_SH(RECIP_SH), .FOLD_PAR(FOLD_PAR), .EXP_FILE(EXP_FILE)
   ) u_core (
     .clk(aclk), .rst_n(aresetn && !soft_reset),
     .s_valid(core_s_valid), .s_ready(core_s_ready),
@@ -137,7 +138,7 @@ module attention_axi #(
   );
 
   axil_regs #(
-    .DW(DW), .FRAC(FRAC), .N(N), .D(D), .DV(DV), .BLK(BLK),
+    .DW(DW), .FRAC(FRAC), .N(N), .D(D), .DV(DV), .BLK(BLK), .FOLD_PAR(FOLD_PAR),
     .AW(C_S_AXI_LITE_ADDR_WIDTH)
   ) u_regs (
     .clk(aclk), .rst_n(aresetn),

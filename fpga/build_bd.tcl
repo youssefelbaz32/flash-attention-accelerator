@@ -2,8 +2,8 @@
 # and export an XSA.
 #
 #   vivado -mode batch -source fpga/build_bd.tcl
-#   vivado -mode batch -source fpga/build_bd.tcl -tclargs 8 16 16 16 100
-#                                                          ^BLK ^N ^D ^DV ^PL clock MHz
+#   vivado -mode batch -source fpga/build_bd.tcl -tclargs 8 16 16 16 100 1
+#                                                          ^BLK ^N ^D ^DV ^MHz ^FOLD_PAR
 #
 # The PL clock defaults to 100 MHz. The first build (N=4 D=4 BLK=2) closed at
 # about 130 MHz: the critical path runs from one lane's dot-product DSP through
@@ -26,8 +26,11 @@ set N   [expr {$argc > 1 ? [lindex $argv 1] : 4}]
 set D   [expr {$argc > 2 ? [lindex $argv 2] : 4}]
 set DV  [expr {$argc > 3 ? [lindex $argv 3] : 4}]
 set FCLK [expr {$argc > 4 ? [lindex $argv 4] : 100}]
+# FOLD_PAR=1 gives REBASE and FOLD one multiplier per output column: DV more
+# DSPs for about 3x fewer compute cycles at N=16. Tagged _FP so both coexist.
+set FPAR [expr {$argc > 5 ? [lindex $argv 5] : 0}]
 
-set tag  "N${N}_D${D}_BLK${BLK}"
+set tag  "N${N}_D${D}_BLK${BLK}[expr {$FPAR ? {_FP} : {}}]"
 set proj $root/fpga/build/$tag
 
 puts "=== building $tag ==="
@@ -69,6 +72,7 @@ set_property -dict [list \
   CONFIG.DV  $DV  \
   CONFIG.BLK $BLK \
 ] $acc
+if {$FPAR} { set_property CONFIG.FOLD_PAR 1 $acc }
 
 # ---- the DMA -----------------------------------------------------------------
 # Scatter-gather off: one contiguous buffer per direction is all this needs, and

@@ -58,6 +58,10 @@ N=16 D=16 DV=16 BLK=4 python3 python/05_online_softmax_model.py > /dev/null
 iverilog -g2012 -DN_OVERRIDE=16 -DD_OVERRIDE=16 -DDV_OVERRIDE=16 -DBLK_OVERRIDE=4 \
   -o build/flash16.vvp rtl/dot4.sv rtl/exp_rom.sv rtl/flash_top.sv rtl/tb_flash_top.sv 2>/dev/null
 vvp build/flash16.vvp | grep -E "PASS|FAIL|latency|delta|COMPLETE" | sed 's/^/  /'
+echo "  --- same shape, FOLD_PAR=1 (DV multipliers in REBASE and FOLD)"
+iverilog -g2012 -DN_OVERRIDE=16 -DD_OVERRIDE=16 -DDV_OVERRIDE=16 -DBLK_OVERRIDE=4 -DFOLD_PAR_OVERRIDE=1 \
+  -o build/flash16p.vvp rtl/dot4.sv rtl/exp_rom.sv rtl/flash_top.sv rtl/tb_flash_top.sv 2>/dev/null
+vvp build/flash16p.vvp | grep -E "PASS|FAIL|latency|delta|COMPLETE|cycles:" | sed 's/^/  /'
 python3 python/04_rtl_fixed_model.py > /dev/null          # restore N=4 vectors
 BLK=2 python3 python/05_online_softmax_model.py > /dev/null
 

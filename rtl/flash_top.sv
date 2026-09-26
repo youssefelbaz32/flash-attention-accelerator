@@ -46,6 +46,11 @@ module flash_top #(
   parameter int DV        = 4,
   parameter int BLK       = 2,    // keys folded per step; also the dot4 lane count
   parameter int RECIP_SH  = 24,   // reciprocal precision: r = 2^RECIP_SH / l
+  // 0: REBASE and FOLD reuse one multiplier over the DV output columns
+  //    (DV and BLK*DV cycles per block). 1: DV multipliers, one cycle per
+  //    rebase and one per key. Same arithmetic in the same order, so both are
+  //    bit-exact against the same spec; FOLD_PAR only trades DSPs for cycles.
+  parameter int FOLD_PAR  = 0,
   parameter     EXP_FILE  = "rtl/vectors/exp_lut.hex"
 )(
   input  logic clk,
@@ -206,6 +211,17 @@ module flash_top #(
   assign v_elem  = $signed(v_mem[j_base + IW'(b_cnt)][int'(c_cnt)*DW +: DW]);
   assign ev_prod = e_s * $signed({v_elem[DW-1], v_elem});
 
+  // The same two products for every output column at once (FOLD_PAR=1).
+  logic signed [ACCW+DW:0] acc_rebased_v [DV];
+  logic signed [2*DW:0]    ev_prod_v     [DV];
+  logic [DV*DW-1:0]        v_row;
+  assign v_row = v_mem[j_base + IW'(b_cnt)];
+  always_comb
+    for (int t = 0; t < DV; t++) begin
+      acc_rebased_v[t] = ($signed(acc[t]) * corr_s + RND_F) >>> FRAC;
+      ev_prod_v[t]     = e_s * $signed({v_row[t*DW + DW-1], v_row[t*DW +: DW]});
+    end
+
   // ---- reciprocal divider (restoring, one quotient bit per cycle) -------------
   logic [RNUMW-1:0] div_num, div_q;
   logic [LW-1:0]    div_den;
@@ -250,9 +266,9 @@ module flash_top #(
       SCORE_ISSUE: if (d4_all_in_ready)  next_state = SCORE_WAIT;
       SCORE_WAIT:  if (d4_all_out_valid) next_state = CORR;
       CORR:        next_state = REBASE;
-      REBASE:      if (last_c) next_state = EXPF;      // DV cycles
+      REBASE:      if (last_c || FOLD_PAR != 0) next_state = EXPF;   // DV cycles, or 1
       EXPF:        if (last_b) next_state = FOLD;      // BLK cycles
-      FOLD:        if (last_b && last_c) begin         // BLK*DV cycles
+      FOLD:        if (last_b && (last_c || FOLD_PAR != 0)) begin   // BLK*DV, or BLK
                      if (last_blk) next_state = RECIP_LOAD;
                      else          next_state = SCORE_ISSUE;
                    end
@@ -320,7 +336,11 @@ module flash_top #(
 
         // Rebase the history by corr. One accumulator element per cycle, so one
         // multiplier is reused DV times instead of DV multipliers sitting idle.
-        REBASE: begin
+        REBASE: if (FOLD_PAR != 0) begin
+          for (int t = 0; t < DV; t++) acc[t] <= acc_rebased_v[t][ACCW-1:0];
+          l_run <= l_rebased[LW-1:0];
+          c_cnt <= '0; b_cnt <= '0;
+        end else begin
           acc[c_cnt] <= acc_rebased[ACCW-1:0];
           if (c_cnt == '0) l_run <= l_rebased[LW-1:0];
           if (last_c) begin c_cnt <= '0; b_cnt <= '0; end
@@ -336,7 +356,14 @@ module flash_top #(
         end
 
         // acc[c] += e_j * V[j][c], one product per cycle over the BLK x DV grid.
-        FOLD: begin
+        FOLD: if (FOLD_PAR != 0) begin
+          for (int t = 0; t < DV; t++) acc[t] <= acc[t] + ACCW'(ev_prod_v[t]);
+          if (last_b) begin
+            b_cnt <= '0;
+            m_run <= m_new_r;
+            if (!last_blk) j_base <= j_base + IW'(BLK);
+          end else b_cnt <= b_cnt + BW'(1);
+        end else begin
           acc[c_cnt] <= acc[c_cnt] + ACCW'(ev_prod);
           if (last_c) begin
             c_cnt <= '0;

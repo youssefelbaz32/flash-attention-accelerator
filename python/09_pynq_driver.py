@@ -137,8 +137,9 @@ class AttentionAccel:
         self.BLK = (p1 >> 16) & 0xFFFF
         self.DW  =  p2        & 0xFF
         self.FRAC= (p2 >> 8)  & 0xFF
+        self.FOLD_PAR = (p2 >> 16) & 0x1
         print(f"bitstream: N={self.N} D={self.D} DV={self.DV} BLK={self.BLK} "
-              f"Q{self.DW-self.FRAC}.{self.FRAC}")
+              f"Q{self.DW-self.FRAC}.{self.FRAC} fold={'parallel' if self.FOLD_PAR else 'serial'}")
 
         # One element per 32-bit stream beat: attention_axi takes the low DW bits
         # of each input beat and sign-extends each output. int16 buffers would

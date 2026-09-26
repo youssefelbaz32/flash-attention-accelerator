@@ -42,7 +42,7 @@
 //   0x20  CYC_STORE_STALL RO
 //   0x24  PARAM0          RO   {D[15:0], N[15:0]}
 //   0x28  PARAM1          RO   {BLK[15:0], DV[15:0]}
-//   0x2C  PARAM2          RO   {16'0, FRAC[7:0], DW[7:0]}
+//   0x2C  PARAM2          RO   {15'0, FOLD_PAR, FRAC[7:0], DW[7:0]}
 //   0x30  BUILD_ID        RO   0xA77E0001
 //
 // PARAM0..2 exist because the single most confusing possible failure is a host
@@ -54,6 +54,7 @@
 module axil_regs #(
   parameter int DW    = 16,
   parameter int FRAC  = 8,
+  parameter int FOLD_PAR = 0,
   parameter int N     = 4,
   parameter int D     = 4,
   parameter int DV    = 4,
@@ -273,7 +274,7 @@ module axil_regs #(
       6'h08:   s_axi_rdata = cyc_store_stall;
       6'h09:   s_axi_rdata = {16'(D),    16'(N)};
       6'h0A:   s_axi_rdata = {16'(BLK),  16'(DV)};
-      6'h0B:   s_axi_rdata = {16'd0, 8'(FRAC), 8'(DW)};
+      6'h0B:   s_axi_rdata = {15'd0, FOLD_PAR != 0, 8'(FRAC), 8'(DW)};
       6'h0C:   s_axi_rdata = BUILD_ID;
       default: s_axi_rdata = 32'hDEAD_BEEF;   // obviously wrong beats plausibly wrong
     endcase
