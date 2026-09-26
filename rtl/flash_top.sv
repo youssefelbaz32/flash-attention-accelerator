@@ -232,11 +232,22 @@ module flash_top #(
   assign rem_ge    = (rem_shift >= {1'b0, div_den});
 
   // O = acc * r >> RECIP_SH, rounded and saturated back into DW bits.
-  logic signed [ACCW+RNUMW:0] o_scaled;
+  // Pipelined in three steps (operand, product, round+saturate+write) because
+  // the 37 x 25-bit product spans a DSP cascade: once the lane max was
+  // pipelined, this one-cycle version was the FPGA critical path. The writes
+  // land two cycles after SCALE_OUT issues them, which costs no cycles: the
+  // row's last write lands while the next row is scoring, or while DRAIN is
+  // still sending the first outputs.
   localparam signed [ACCW+RNUMW:0] RND_R  = 1 <<< (RECIP_SH - 1);
   localparam signed [ACCW+RNUMW:0] O_MAX  =  (1 <<< (DW-1)) - 1;
   localparam signed [ACCW+RNUMW:0] O_MIN  = -(1 <<< (DW-1));
-  assign o_scaled = ($signed(acc[c_cnt]) * $signed({1'b0, div_q}) + RND_R) >>> RECIP_SH;
+  localparam int OAW = (N*DV > 1) ? $clog2(N*DV) : 1;
+  logic signed [ACCW-1:0]      so_acc;               // stage 1: operand
+  logic signed [ACCW+RNUMW:0]  so_prod;              // stage 2: product
+  logic [OAW-1:0]              so_addr1, so_addr2;
+  logic                        so_v1, so_v2;
+  logic signed [ACCW+RNUMW:0]  o_scaled;
+  assign o_scaled = (so_prod + RND_R) >>> RECIP_SH;
 
   logic signed [DW-1:0] o_sat;
   always_comb begin
@@ -320,6 +331,7 @@ module flash_top #(
         end else ld_col <= ld_col + LCW'(1);
       end
 
+      if (so_v2) o_mem[so_addr2] <= o_sat;       // output scaling, stage 3
       if (curr_state == SCALE_OUT && last_c && last_row) st_cnt <= '0;
       if (curr_state == DRAIN && m_valid && m_ready)     st_cnt <= st_cnt + OCW'(1);
 
@@ -395,7 +407,6 @@ module flash_top #(
 
         // Multiply the accumulator by the reciprocal -- no divide per element.
         SCALE_OUT: begin
-          o_mem[int'(row_i)*DV + int'(c_cnt)] <= o_sat;
           if (last_c) begin
             c_cnt <= '0;
             if (!last_row) begin                 // reset the running state
@@ -410,6 +421,20 @@ module flash_top #(
 
         default: ;
       endcase
+    end
+  end
+
+  // ---- output scaling pipeline (see o_scaled) --------------------------------
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      so_v1 <= 1'b0; so_v2 <= 1'b0;
+    end else begin
+      so_v1    <= (curr_state == SCALE_OUT);
+      so_acc   <= acc[c_cnt];
+      so_addr1 <= OAW'(int'(row_i)*DV + int'(c_cnt));
+      so_v2    <= so_v1;
+      so_prod  <= so_acc * $signed({1'b0, div_q});
+      so_addr2 <= so_addr1;
     end
   end
 
