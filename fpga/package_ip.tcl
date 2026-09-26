@@ -16,8 +16,12 @@ set ip_name   attention_axi
 set ip_vendor youssefelhagrasy
 set ip_lib    accel
 set ip_ver    1.0
-set stage     $root/fpga/.ip_stage
-set repo      $root/fpga/ip_repo
+# Vivado work directories. Windows caps paths at 260 characters and Vivado
+# nests deep, so from a long checkout set FPGA_WORK to something short
+# (e.g. C:/fw). Bitstreams and reports are still copied to fpga/build.
+set work [expr {[info exists ::env(FPGA_WORK)] ? $::env(FPGA_WORK) : "$root/fpga"}]
+set stage     $work/.ip_stage
+set repo      $work/ip_repo
 
 file delete -force $stage
 file mkdir $stage

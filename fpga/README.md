@@ -12,6 +12,15 @@ vivado -mode batch -source fpga/build_bd.tcl -tclargs 8 16 16 16 100   # BLK N D
 On Windows, run the sweep from Git Bash with the launcher named explicitly:
 `VIVADO=/c/Xilinx/Vivado/2024.1/bin/vivado.bat ./fpga/sweep.sh`.
 
+Windows caps paths at 260 characters and Vivado nests its run directories
+deep, so from a long checkout (a worktree under OneDrive, say) builds fail with
+`Path length exceeds 260-Byte maximum`. Set `FPGA_WORK=C:/fw` (any short path)
+and both scripts do their work there; bitstreams and reports are still copied
+to `fpga/build`. Vivado 2024.1 on Windows also occasionally fails with its own
+Tcl errors (`Could not create slave interpreter`, `Failed to load feature
+'ipservices'`). They are not design errors, and rerunning the same command
+works.
+
 Verified with Vivado 2024.1. Each build writes `attn_<tag>.bit`, `.hwh` and
 `.xsa` to `fpga/build/`. PYNQ needs the `.bit` and `.hwh` side by side.
 

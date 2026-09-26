@@ -31,14 +31,19 @@ set FCLK [expr {$argc > 4 ? [lindex $argv 4] : 100}]
 set FPAR [expr {$argc > 5 ? [lindex $argv 5] : 0}]
 
 set tag  "N${N}_D${D}_BLK${BLK}[expr {$FPAR ? {_FP} : {}}]"
-set proj $root/fpga/build/$tag
+# Vivado work directories. Windows caps paths at 260 characters and Vivado
+# nests deep, so from a long checkout set FPGA_WORK to something short
+# (e.g. C:/fw). Bitstreams and reports are still copied to fpga/build.
+set work [expr {[info exists ::env(FPGA_WORK)] ? $::env(FPGA_WORK) : "$root/fpga"}]
+set proj $work/build/$tag
+set out  $root/fpga/build
 
 puts "=== building $tag ==="
 file delete -force $proj
 file mkdir $proj
 
 create_project attn $proj -part $part -force
-set_property ip_repo_paths $root/fpga/ip_repo [current_project]
+set_property ip_repo_paths $work/ip_repo [current_project]
 update_ip_catalog -rebuild
 
 create_bd_design "attn_bd"
@@ -173,11 +178,15 @@ puts "  utilization -> $util"
 puts "  timing      -> $proj/timing.txt"
 
 write_hw_platform -fixed -include_bit -force $proj/attn_$tag.xsa
-file copy -force $proj/attn.runs/impl_1/attn_bd_wrapper.bit $root/fpga/build/attn_$tag.bit
-file copy -force $proj/attn_$tag.xsa $root/fpga/build/attn_$tag.xsa
+file mkdir $out/$tag
+foreach f {utilization.txt timing.txt address_map.txt} {
+  if {"$proj" ne "$out/$tag"} { file copy -force $proj/$f $out/$tag/$f }
+}
+file copy -force $proj/attn.runs/impl_1/attn_bd_wrapper.bit $out/attn_$tag.bit
+file copy -force $proj/attn_$tag.xsa $out/attn_$tag.xsa
 # PYNQ loads the overlay from the .bit but reads the design (IP names, address
 # map, PL clock, interrupts) from a .hwh with the same basename.
-file copy -force $proj/attn.gen/sources_1/bd/attn_bd/hw_handoff/attn_bd.hwh $root/fpga/build/attn_$tag.hwh
+file copy -force $proj/attn.gen/sources_1/bd/attn_bd/hw_handoff/attn_bd.hwh $out/attn_$tag.hwh
 puts "  bitstream   -> fpga/build/attn_$tag.bit"
 puts "  hwh         -> fpga/build/attn_$tag.hwh"
 puts "  xsa         -> fpga/build/attn_$tag.xsa"
