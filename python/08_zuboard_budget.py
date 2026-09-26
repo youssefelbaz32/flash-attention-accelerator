@@ -23,8 +23,11 @@ BRAM_BITS  = 3.8 * 1024 * 1024        # 3.8 Mb
 BRAM_BYTES = BRAM_BITS / 8            # ~497 KB
 
 # ---- cycle model, validated against the RTL testbenches ----------------------
-def flash_cycles(N, D, DV, BLK, RECIP_SH=24):
-    per_block = 1 + (D + 2) + DV + BLK + BLK * DV
+def flash_cycles(N, D, DV, BLK, RECIP_SH=24, FOLD_PAR=0):
+    # +2 per block since the lane max was pipelined for timing (MAXR, CORR).
+    # FOLD_PAR=1 rebases in 1 cycle and folds one key per cycle.
+    rebase, fold = (1, BLK) if FOLD_PAR else (DV, BLK * DV)
+    per_block = 1 + (D + 2) + 2 + rebase + BLK + fold
     return N * ((N // BLK) * per_block + (RECIP_SH + 1) + DV)
 
 def naive_cycles(N, D, DV, LANES, NUMW=25):

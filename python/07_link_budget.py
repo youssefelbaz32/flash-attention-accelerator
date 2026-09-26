@@ -13,12 +13,16 @@ DW_BYTES = 2          # Q8.8 -> 2 bytes per word
 F_CLK    = 100e6      # a conservative fabric clock for a 7-series part
 
 # flash_top cycle model, derived from the FSM and checked against the sim:
-#   per key block : 1 issue + (D+2) MAC + DV rebase + BLK exp + BLK*DV fold
+#   per key block : 1 issue + (D+2) MAC + 2 max/corr + DV rebase + BLK exp + BLK*DV fold
 #   per row       : (N/BLK) blocks + RECIP_SH+1 divide + DV scale-out
-# Measured: N=4,D=DV=4,BLK=4 -> 240 cy (model 240). N=16,D=DV=16,BLK=4 -> 7200 cy
-# (model 7248, the 0.7% gap is handshake overhead the model does not track).
-def flash_cycles(N, D, DV, BLK, RECIP_SH=24):
-    per_block = 1 + (D + 2) + DV + BLK + BLK * DV
+# Measured: N=4,D=DV=4,BLK=4 -> 248 cy (model 248). N=16,D=DV=16,BLK=4 -> 7328 cy
+# (model 7376, the 0.7% gap is handshake overhead the model does not track).
+# With FOLD_PAR=1: N=16 BLK=4 -> 2528 cy (model 2576).
+def flash_cycles(N, D, DV, BLK, RECIP_SH=24, FOLD_PAR=0):
+    # +2 per block since the lane max was pipelined for timing (MAXR, CORR).
+    # FOLD_PAR=1 rebases in 1 cycle and folds one key per cycle.
+    rebase, fold = (1, BLK) if FOLD_PAR else (DV, BLK * DV)
+    per_block = 1 + (D + 2) + 2 + rebase + BLK + fold
     per_row   = (N // BLK) * per_block + (RECIP_SH + 1) + DV
     return N * per_row
 

@@ -46,11 +46,13 @@ the entire history, which is why softmax can stream at all.
 |---|---|---|---|
 | naive, LANES=1 | 1 | 659 | 2N² words (S and P) |
 | naive, LANES=4 | 4 | 515 | 2N² words |
-| online, BLK=1 | 1 | 360 | DV+2 words |
-| online, BLK=4 | 4 | 240 | DV+2 words |
+| online, BLK=1 | 1 | 392 | DV+2 words |
+| online, BLK=4 | 4 | 248 | DV+2 words |
 
 One multiplier running online softmax beats four running the naive version, at a
-quarter of the arithmetic area. The storage column matters more on an FPGA
+quarter of the arithmetic area. (The online rows gained two cycles per key
+block when the lane max was pipelined to reach 150 MHz on the FPGA; they were
+360 and 240.) The storage column matters more on an FPGA
 though: at N=128 and D=64 the naive path wants about 64 KB of BRAM for S and P,
 while the online path needs 66 words, and that number does not grow with N.
 
@@ -64,12 +66,12 @@ while the online path needs 66 words, and that number does not grow with N.
 | M4 | CUDA tiled (shared memory) | done | M1 and M3, bit-identical to M3 |
 | M5 | SystemVerilog, naive datapath | done | integer spec, exact at all 4 stages |
 | M6 | Host to FPGA comms (UART, packet FSM, AXIS) | needs board | |
-| M7 | FPGA bring-up on Vivado | needs board | |
+| M7 | FPGA bring-up on Vivado (ZUBoard 1CG) | builds and meets 150 MHz at N=16; on-board run needs the board | Vivado timing, see [fpga/README.md](fpga/README.md) |
 | M8 | FlashAttention-lite, RTL | done | its own integer spec, exact at every BLK |
 | M8 | FlashAttention-lite, CUDA and Triton | done, timed on an RTX 4070 Laptop GPU | float64 CPU reference, SDPA |
 
-M8 is one milestone with two implementations. M6 and M7 are the bring-up path
-and both need hardware I do not have in front of me yet.
+M8 is one milestone with two implementations. M6 and M7 are the bring-up path.
+The bitstreams build and close timing; running them needs the board.
 
 ## Why there are two Python models
 
