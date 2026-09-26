@@ -131,7 +131,7 @@ module flash_top #(
   logic [BW-1:0] b_cnt;
 
   typedef enum logic [3:0] {
-    IDLE, LOAD, SCORE_ISSUE, SCORE_WAIT, CORR, REBASE, EXPF, FOLD,
+    IDLE, LOAD, SCORE_ISSUE, SCORE_WAIT, MAXR, CORR, REBASE, EXPF, FOLD,
     RECIP_LOAD, RECIP_ITER, SCALE_OUT, DRAIN
   } state_t;
   state_t curr_state, next_state;
@@ -161,12 +161,14 @@ module flash_top #(
   // critical path: 25 logic levels at BLK=2, 50 at BLK=16. As a tree it is
   // log2(BLK)+1 compares deep. The result is registered (m_new_r) and the
   // rebase factor exp(m_run - m_new) is looked up a cycle later, in CORR, so
-  // the max and the exp ROM are no longer one combinational path.
+  // the max and the exp ROM are no longer one combinational path. The tree
+  // reads the registered scores (s_blk) in MAXR, not the DSP outputs: at
+  // BLK=16 a 16-way tree straight off the DSPs was the critical path again.
   localparam int BLKP = 1 << $clog2(BLK > 1 ? BLK : 2);   // lanes padded to 2^k
   logic signed [DW-1:0] mx [2*BLKP];                       // heap-ordered tree
   always_comb begin
     for (int t = 0; t < BLKP; t++)
-      mx[BLKP + t] = (t < BLK) ? d4_s[t] : NEG_INF;
+      mx[BLKP + t] = (t < BLK) ? s_blk[t] : NEG_INF;
     for (int t = BLKP - 1; t >= 1; t--)
       mx[t] = (mx[2*t] > mx[2*t+1]) ? mx[2*t] : mx[2*t+1];
     mx[0] = '0;
@@ -275,7 +277,8 @@ module flash_top #(
       IDLE:        if (s_valid) next_state = LOAD;
       LOAD:        if (s_valid && s_ready && ld_last) next_state = SCORE_ISSUE;
       SCORE_ISSUE: if (d4_all_in_ready)  next_state = SCORE_WAIT;
-      SCORE_WAIT:  if (d4_all_out_valid) next_state = CORR;
+      SCORE_WAIT:  if (d4_all_out_valid) next_state = MAXR;
+      MAXR:        next_state = CORR;
       CORR:        next_state = REBASE;
       REBASE:      if (last_c || FOLD_PAR != 0) next_state = EXPF;   // DV cycles, or 1
       EXPF:        if (last_b) next_state = FOLD;      // BLK cycles
@@ -338,8 +341,9 @@ module flash_top #(
       case (curr_state)
         SCORE_WAIT: if (d4_all_out_valid) begin
           for (int t = 0; t < BLK; t++) s_blk[t] <= d4_s[t];
-          m_new_r <= m_new_c;
         end
+
+        MAXR: m_new_r <= m_new_c;
 
         CORR: begin
           corr_r  <= exp_e;                      // exp(m_run - m_new), Q(FRAC)
